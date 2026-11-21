@@ -1,0 +1,17 @@
+/build/
+/dist/
+/.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+*.log
+*.bin
+*.onnx
+*.pth
+*.pkg
+*.dmg
+.env
+.env.*
+*.pem
+*.key
+*.p12

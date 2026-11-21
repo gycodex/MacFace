@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleIdentifier</key><string>com.macface.agent</string>
+<key>CFBundleExecutable</key><string>MacFaceAgent</string>
+<key>CFBundleName</key><string>MacFace</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>LSUIElement</key><true/>
+<key>NSCameraUsageDescription</key><string>MacFace 使用外接摄像头在本机验证人脸及转头动作，不保存画面。</string>
+</dict></plist>
