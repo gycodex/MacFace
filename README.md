@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/gycodex/MacFace/releases/tag/v1.0.1"><strong>下载 MacFace 1.0.1</strong></a>
+  <a href="https://github.com/gycodex/MacFace/releases/tag/v1.0.2"><strong>下载 MacFace 1.0.2</strong></a>
   &nbsp;·&nbsp;
   <a href="#开始使用">开始使用</a>
   &nbsp;·&nbsp;
@@ -24,7 +24,7 @@
 
 ## 开始使用
 
-1. 从 [Release](https://github.com/gycodex/MacFace/releases/tag/v1.0.1) 下载 `.pkg`。安装包内含 App、后台和识别模型，无需安装开发工具。
+1. 从 [Release](https://github.com/gycodex/MacFace/releases/tag/v1.0.2) 下载 `.pkg`。安装包内含 App、后台和识别模型，无需安装开发工具。
 2. 从「应用程序」打开 MacFace，允许摄像头权限，点「录入人脸」并确认保存。安装和保存录入需要管理员授权。
 3. 按 `⌃⌘Q` 锁屏。唤醒屏幕后，**在空白密码框按回车并看向镜头**。输入正确的系统密码时，macOS 仍可直接解锁。
 
