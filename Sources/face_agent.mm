@@ -162,7 +162,7 @@ static void serve(MacFaceStatusMenu *menu) {
                             cameraMs = elapsedMilliseconds(requestStarted);
                             verified = checkGlance(camera, *matcher, reference, prepared, usedPreparation);
                         } else {
-                            os_log_error(OS_LOG_DEFAULT, "MacFace: no external camera");
+                            os_log_error(OS_LOG_DEFAULT, "MacFace: no available camera");
                         }
                     } catch (const cv::Exception &) {
                         os_log_error(OS_LOG_DEFAULT, "MacFace: recognition failed");

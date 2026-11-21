@@ -4,9 +4,9 @@
 
 用人脸解锁 macOS 原生锁屏。支持自动刷脸和空白回车刷脸，识别在本机完成，无需保存系统密码。
 
-**系统要求**：Apple 芯片、macOS 27。当前正式版使用外接 USB 摄像头。
+**系统要求**：Apple 芯片、macOS 27。支持 MacBook 内置摄像头和外接 USB 摄像头。
 
-[下载安装包](https://github.com/gycodex/MacFace/releases/latest)
+[下载安装包](https://github.com/gycodex/MacFace/releases/latest) · 内置摄像头支持已加入源码，当前 v1.0.3 安装包仅支持外接 USB 摄像头。
 
 ## 开始使用
 

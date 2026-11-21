@@ -306,12 +306,12 @@ final class PreviewCamera: NSObject, ObservableObject, AVCaptureVideoDataOutputS
             self.queue.async {
                 guard self.wantsCamera else { return }
                 let devices = AVCaptureDevice.DiscoverySession(
-                    deviceTypes: [.external], mediaType: .video, position: .unspecified
+                    deviceTypes: [.external, .builtInWideAngleCamera], mediaType: .video, position: .unspecified
                 ).devices
                 guard let camera = devices.first(where: { !$0.isContinuityCamera }),
                       let input = try? AVCaptureDeviceInput(device: camera),
                       self.session.canAddInput(input) else {
-                    self.show("未找到可用的外接摄像头。")
+                    self.show("未找到可用的摄像头。")
                     return
                 }
                 self.session.beginConfiguration()

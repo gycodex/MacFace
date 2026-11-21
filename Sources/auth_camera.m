@@ -1,4 +1,4 @@
-#import <AVFoundation/AVFoundation.h>
+#import "capture_device.h"
 #import <os/log.h>
 
 @interface MacFaceFrameProbe : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate>
@@ -28,11 +28,7 @@ void MacFaceCheckCamera(void) {
     dispatch_semaphore_t finished = dispatch_semaphore_create(0);
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         @autoreleasepool {
-            AVCaptureDeviceDiscoverySession *discovery =
-                [AVCaptureDeviceDiscoverySession discoverySessionWithDeviceTypes:@[AVCaptureDeviceTypeExternal]
-                                                                      mediaType:AVMediaTypeVideo
-                                                                       position:AVCaptureDevicePositionUnspecified];
-            AVCaptureDevice *camera = discovery.devices.firstObject;
+            AVCaptureDevice *camera = MacFaceCaptureDevice();
             AVCaptureDeviceInput *input = camera ? [AVCaptureDeviceInput deviceInputWithDevice:camera error:nil] : nil;
             AVCaptureSession *session = [[AVCaptureSession alloc] init];
             AVCaptureVideoDataOutput *output = [[AVCaptureVideoDataOutput alloc] init];

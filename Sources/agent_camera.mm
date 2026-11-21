@@ -1,5 +1,5 @@
 #import "agent_camera.h"
-#import <AVFoundation/AVFoundation.h>
+#import "capture_device.h"
 
 #include <opencv2/imgproc.hpp>
 #include <utility>
@@ -24,17 +24,7 @@
 }
 
 - (BOOL)start {
-    AVCaptureDeviceDiscoverySession *discovery =
-        [AVCaptureDeviceDiscoverySession discoverySessionWithDeviceTypes:@[AVCaptureDeviceTypeExternal]
-                                                               mediaType:AVMediaTypeVideo
-                                                                position:AVCaptureDevicePositionUnspecified];
-    AVCaptureDevice *camera = nil;
-    for (AVCaptureDevice *candidate in discovery.devices) {
-        if (!candidate.isContinuityCamera) {
-            camera = candidate;
-            break;
-        }
-    }
+    AVCaptureDevice *camera = MacFaceCaptureDevice();
     if (!camera) {
         return NO;
     }
