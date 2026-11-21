@@ -5,6 +5,7 @@
 @interface MacFaceCamera : NSObject
 - (BOOL)start;
 - (void)stop;
+- (void)beginFrameDelivery;
 - (BOOL)waitForFrame:(cv::Mat &)frame
              version:(uint64_t &)version
               before:(NSDate *)deadline;

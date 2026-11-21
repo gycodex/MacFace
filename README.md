@@ -1,59 +1,84 @@
-# MacFace
+<p align="center">
+  <img src="Assets/MacFace.png" width="96" alt="MacFace 应用图标">
+</p>
 
-MacFace 给 Apple 芯片 Mac 添加本地人脸锁屏解锁。唤醒后仍显示 macOS 原生锁屏。直接输入正确密码时，系统优先按原方式解锁。要刷脸时，留空密码框按回车，再看向摄像头。
+<h1 align="center">MacFace</h1>
 
-MacFace 是实验项目。已在 macOS 27.2.1 的 Apple 芯片 Mac mini 和外接 UVC 摄像头上验证密码优先以及主动刷脸路径。其他 Mac、macOS 版本和摄像头尚未通过完整验证。功能范围是已登录会话的锁屏解锁。
+<p align="center"><strong>用人脸解锁 macOS 原生锁屏。</strong></p>
 
-## 下载
+<p align="center">
+  Apple 芯片 · macOS 27 · 本机人脸识别 · MIT
+</p>
 
-[GitHub Releases](https://github.com/gycodex/MacFace/releases) 提供适用于 Apple 芯片、macOS 27 的预览安装包。安装包内含运行组件和模型。安装后，从「应用程序」打开 MacFace 并完成人脸录入。
+<p align="center">
+  <a href="https://github.com/gycodex/MacFace/releases/tag/v0.5.0-preview.1"><strong>下载 0.5 预览版</strong></a>
+  &nbsp;·&nbsp;
+  <a href="#开始使用">开始使用</a>
+  &nbsp;·&nbsp;
+  <a href="#从源码构建">从源码构建</a>
+</p>
 
-当前预览安装包没有 Developer ID 签名或 Apple 公证，双击时 macOS 可能拦截。首次安装和卸载尚未在干净系统做端到端验收。
+<p align="center">
+  <img src="Assets/MacFace-Settings.png" width="640" alt="MacFace 实机截图，显示解锁方式、摄像头预览和人脸录入设置">
+</p>
 
-## 使用
+## 开始使用
 
-1. 在「应用程序」打开 MacFace，点「录入人脸」，正对镜头并确认保存。保存需要管理员授权。
-2. 选择「看一眼」「转头验证」或「仅用密码」。
-3. 按 `⌃⌘Q` 锁屏。唤醒后可输入系统密码，或在密码框留空按回车启动人脸验证。
+1. 从 [Release](https://github.com/gycodex/MacFace/releases/tag/v0.5.0-preview.1) 下载 `.pkg`。安装包内含 App、后台和识别模型，无需安装开发工具。
+2. 从「应用程序」打开 MacFace，允许摄像头权限，点「录入人脸」并确认保存。安装和保存录入需要管理员授权。
+3. 按 `⌃⌘Q` 锁屏。唤醒屏幕后，**在空白密码框按回车并看向镜头**。输入正确的系统密码时，macOS 仍可直接解锁。
 
-设置窗口可重新录入或删除已有的人脸。删除需要管理员确认，之后仍可使用系统密码。
+菜单栏人像图标可以打开设置、查看后台状态或切换「看一眼」和「仅用密码」。设置里的 `？` 有简短说明。
 
-摄像头用于预览、录入和验证。画面在内存中处理，持久化的内容为本机的人脸特征。普通彩色摄像头无法提供 TrueDepth 的深度和红外信息。软件活体判断尚未经过实体照片、屏幕视频和不同环境的完整评估。
+> [!IMPORTANT]
+> 当前是未签名、未公证的预览包，macOS 可能拦截打开。支持范围为 Apple 芯片、macOS 27 和外接 UVC 摄像头。已有版本的用户请先[卸载](#卸载)再安装。
+
+## 解锁与隐私
+
+| 操作 | MacFace 的行为 |
+| --- | --- |
+| 原生锁屏亮起 | 「看一眼」模式会短暂预热摄像头并提前识别 |
+| 空白密码框按回车 | 核对实时画面，验证通过后解锁 |
+| 输入正确密码 | 由 macOS 直接解锁 |
+| 选择「仅用密码」 | 暂停人脸解锁 |
+
+人脸特征保存在本机。摄像头画面只在内存中处理，设置里可以重新录入或删除人脸。普通摄像头不提供 TrueDepth 深度和红外信息，软件活体检测尚未经过完整的照片和视频防冒用评估。
+
+MacFace 用于已登录会话的锁屏。已在 macOS 27.2.1 的 Apple 芯片 Mac mini 和外接 UVC 摄像头上实测。预览包尚未在干净系统完成首次安装与卸载验收。
 
 ## 从源码构建
 
-在 Apple 芯片 Mac 上安装 Xcode、CMake 3.25 或更高版本和 Ninja，然后运行：
+在 Apple 芯片 Mac 上安装 Xcode、CMake 3.25 或更高版本和 Ninja。构建会下载并校验 OpenCV 源码及模型。
 
 ```sh
 make test
-make release
+make package-preview
 ```
 
-构建会从上游下载 OpenCV 源码和三个模型，并校验 SHA-256 后生成本地安装文件。首次构建需要网络连接并会编译 OpenCV。构建本身不需要管理员授权。构建产物使用临时签名，尚未做 Developer ID 签名和公证。
-
-## 安装与卸载
-
-以下用于开发测试。macOS 会要求管理员授权，MacFace 还需要摄像头权限。
+安装包和 SHA-256 校验文件生成在 `build/packages/`。直接使用本地构建组件安装时，执行以下命令，然后打开 MacFace 录入人脸。
 
 ```sh
 sudo /bin/bash build/local-install/install-macface.sh install "$PWD/build/local-install" "$(id -un)"
 ```
 
-安装会保留现有锁屏规则并把 MacFace 放在原生密码验证后面。安装结束后从「应用程序」打开 MacFace 并录入。遇到不兼容的系统授权配置时，安装会退出。当前源码版的全新安装、升级及卸载还需在干净的 Mac 上做完整验收。
+<details>
+<summary>实现概览</summary>
 
-卸载会移除 MacFace 的锁屏规则、后台程序和本机人脸模板。
+- SwiftUI 和 AVFoundation 提供设置、预览和录入。
+- 后台使用 YuNet、人脸特征模型 SFace 和 MiniFASNetV2 活体模型。
+- 授权插件核对本地后台的代码签名，并把识别结果绑定到单次锁屏请求。验证失败会由系统保留密码入口。
+- 测试覆盖插件加载、通信校验、超时、密码优先策略和提前识别时效。
+
+</details>
+
+## 卸载
+
+卸载会移除 MacFace 的锁屏规则、后台和本机人脸模板。
 
 ```sh
 sudo /bin/bash '/Library/Application Support/MacFace/install-macface.sh' remove
 ```
 
-## 代码结构
+## 许可证
 
-- 设置 App 使用 SwiftUI 和 AVFoundation。
-- 识别后台使用 AVFoundation、YuNet、SFace 和 MiniFASNetV2。
-- 授权插件通过本地 Unix socket 请求人脸验证，校验对端代码签名，并将响应绑定到本次请求。超时或失败会拒绝人脸验证。
-- `make test` 覆盖插件加载、本地请求校验、超时与锁屏策略生成。
-
-MacFace 源码采用 [MIT](LICENSE) 许可。第三方来源见 [THIRD_PARTY.md](THIRD_PARTY.md)。
-
-运行 `make package-preview` 可生成未签名的本地预览安装包和 SHA-256 校验文件。
+MacFace 源码采用 [MIT](LICENSE)。模型及其他组件的来源和许可证见 [THIRD_PARTY.md](THIRD_PARTY.md)。

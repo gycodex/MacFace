@@ -1,23 +1,21 @@
 #import <AppKit/AppKit.h>
 #import <AVFoundation/AVFoundation.h>
-#import <Security/Security.h>
 #import <os/log.h>
 
 #import "agent_camera.h"
+#import "camera_warmup.h"
 #import "settings_keys.h"
+#import "status_menu.h"
 #include "auth_exchange.h"
 #include "native_matching.hpp"
 
-#include <array>
 #include <cerrno>
 #include <chrono>
-#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <libproc.h>
 #include <sys/socket.h>
-#include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
 
@@ -26,97 +24,11 @@ using Clock = std::chrono::steady_clock;
 static NSString *const configuration = @"/Library/Application Support/MacFace";
 static const char *const authorizationHost = "identifier \"com.apple.authorizationhosthelper.arm64\" and anchor apple";
 
-static void say(NSString *message) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        static AVSpeechSynthesizer *speaker = [[AVSpeechSynthesizer alloc] init];
-        [speaker stopSpeakingAtBoundary:AVSpeechBoundaryImmediate];
-        AVSpeechUtterance *sentence = [AVSpeechUtterance speechUtteranceWithString:message];
-        sentence.voice = [AVSpeechSynthesisVoice voiceWithLanguage:@"zh-CN"];
-        [speaker speakUtterance:sentence];
-    });
-}
-
-static bool checkMovement(MacFaceCamera *camera, NativeFaceMatcher &matcher, const cv::Mat &reference) {
-    uint8_t randomness = 0;
-    if (SecRandomCopyBytes(kSecRandomDefault, sizeof(randomness), &randomness) != errSecSuccess) {
-        return false;
-    }
-    int direction = (randomness & 1) ? 1 : -1;
-    std::array<int, 3> steps{direction, -direction, 0};
-    auto directionText = [](int step) -> NSString * {
-        if (step == 1) return @"请向右转头，保持片刻。";
-        if (step == -1) return @"请向左转头，保持片刻。";
-        return @"请回到正面。";
-    };
-
-    uint64_t version = 0;
-    auto start = Clock::now();
-    std::optional<double> center;
-    while (Clock::now() < start + std::chrono::seconds(3)) {
-        cv::Mat frame;
-        if (![camera waitForFrame:frame version:version before:[NSDate dateWithTimeIntervalSinceNow:0.25]]) {
-            continue;
-        }
-        auto pose = matcher.verifiedPose(frame, reference);
-        if (pose && std::abs(*pose) <= 0.28) {
-            center = pose;
-            break;
-        }
-    }
-    if (!center) {
-        os_log(OS_LOG_DEFAULT, "MacFace: initial matching face unavailable");
-        return false;
-    }
-
-    auto deadline = start + std::chrono::seconds(12);
-    for (int step : steps) {
-        say(directionText(step));
-        std::optional<Clock::time_point> heldSince;
-        bool completed = false;
-        auto lastVerified = Clock::now();
-        while (Clock::now() < deadline) {
-            cv::Mat frame;
-            std::optional<double> pose;
-            if ([camera waitForFrame:frame version:version before:[NSDate dateWithTimeIntervalSinceNow:0.25]]) {
-                pose = matcher.verifiedPose(frame, reference);
-            }
-            auto now = Clock::now();
-            if (!pose) {
-                heldSince.reset();
-                if (now - lastVerified >= std::chrono::milliseconds(900)) {
-                    os_log(OS_LOG_DEFAULT, "MacFace: matching face lost during movement");
-                    return false;
-                }
-                continue;
-            }
-            lastVerified = now;
-            double offset = *pose - *center;
-            bool reached = step ? offset * step >= 0.19 : std::abs(offset) <= 0.09;
-            if (!reached) {
-                heldSince.reset();
-                continue;
-            }
-
-            if (!heldSince) {
-                heldSince = now;
-                continue;
-            }
-            if (now - *heldSince >= std::chrono::milliseconds(220)) {
-                completed = true;
-                break;
-            }
-        }
-        if (!completed) {
-            os_log(OS_LOG_DEFAULT, "MacFace: movement stage timed out");
-            return false;
-        }
-    }
-    return true;
-}
-
-static bool checkGlance(MacFaceCamera *camera, NativeFaceMatcher &matcher, const cv::Mat &reference) {
-    auto deadline = Clock::now() + std::chrono::seconds(3);
-    auto nextCheck = Clock::now();
+static bool checkGlance(MacFaceCamera *camera, NativeFaceMatcher &matcher, const cv::Mat &reference,
+                        bool prepared, bool &usedPreparation) {
+    auto started = Clock::now();
+    auto deadline = started + std::chrono::seconds(3);
+    auto nextCheck = started;
     uint64_t frameVersion = 0;
     int consecutive = 0;
     while (Clock::now() < deadline) {
@@ -126,7 +38,13 @@ static bool checkGlance(MacFaceCamera *camera, NativeFaceMatcher &matcher, const
             continue;
         }
         nextCheck = Clock::now() + std::chrono::milliseconds(160);
-        consecutive = matcher.verifiedGlance(frame, reference) ? consecutive + 1 : 0;
+        bool matched = matcher.verifiedGlance(frame, reference);
+        if (prepared && matched && Clock::now() - started <= std::chrono::milliseconds(450)) {
+            usedPreparation = true;
+            return true;
+        }
+        prepared = false;
+        consecutive = matched ? consecutive + 1 : 0;
         if (consecutive >= 3) {
             return true;
         }
@@ -173,21 +91,42 @@ static int createListener(void) {
     return listener;
 }
 
-static bool sessionIsLocked(void) {
-    NSDictionary *state = CFBridgingRelease(CGSessionCopyCurrentDictionary());
-    id locked = state[@"CGSSessionScreenIsLocked"];
-    return [locked isKindOfClass:[NSNumber class]] && [locked boolValue];
+static long elapsedMilliseconds(Clock::time_point start) {
+    return (long)std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start).count();
 }
 
-static void serve(void) {
+static void updateStatus(MacFaceStatusMenu *menu, NSString *message) {
+    dispatch_async(dispatch_get_main_queue(), ^{ [menu setStatusMessage:message]; });
+}
+
+static void serve(MacFaceStatusMenu *menu) {
     @autoreleasepool {
-        NativeFaceMatcher matcher([NSBundle mainBundle].resourcePath.fileSystemRepresentation);
+        auto matcher = std::make_shared<NativeFaceMatcher>([NSBundle mainBundle].resourcePath.fileSystemRepresentation);
+        auto warming = Clock::now();
+        try {
+            matcher->warmUp();
+            os_log(OS_LOG_DEFAULT, "MacFace: models ready in %ld ms", elapsedMilliseconds(warming));
+        } catch (const cv::Exception &) {
+            os_log_error(OS_LOG_DEFAULT, "MacFace: model warm-up unavailable");
+        }
         int listener = createListener();
         if (listener < 0) {
+            updateStatus(menu, @"识别后台未就绪");
             os_log_error(OS_LOG_DEFAULT, "MacFace: could not start verification listener");
             return;
         }
 
+        MacFaceCameraWarmup *cameraWarmup = [[MacFaceCameraWarmup alloc] initWithAnalyzer:^BOOL(const cv::Mat &frame) {
+            const cv::Mat reference = loadTemplate();
+            if (reference.empty()) return NO;
+            try {
+                return matcher->verifiedGlance(frame, reference);
+            } catch (const cv::Exception &) {
+                return NO;
+            }
+        }];
+        dispatch_async(dispatch_get_main_queue(), ^{ [cameraWarmup startWatching]; });
+        updateStatus(menu, @"识别后台就绪");
         os_log(OS_LOG_DEFAULT, "MacFace: armed");
         for (;;) {
             @autoreleasepool {
@@ -200,8 +139,7 @@ static void serve(void) {
                 if (MacFacePeerMatches(client, 0, authorizationHost) &&
                     MacFaceReceiveChallenge(client, nonce, 500)) {
                     NSString *mode = MacFaceUnlockMode();
-                    bool turn = [mode isEqualToString:MacFaceModeTurn];
-                    if (!sessionIsLocked() || [mode isEqualToString:MacFaceModePassword]) {
+                    if (!MacFaceSessionIsLocked() || [mode isEqualToString:MacFaceModePassword]) {
                         MacFaceSendVerdict(client, nonce, false, 500);
                         close(client);
                         continue;
@@ -213,25 +151,35 @@ static void serve(void) {
                         continue;
                     }
                     bool verified = false;
-                    MacFaceCamera *camera = [[MacFaceCamera alloc] init];
+                    auto requestStarted = Clock::now();
+                    long cameraMs = 0;
+                    BOOL reused = NO;
+                    BOOL prepared = NO;
+                    bool usedPreparation = false;
+                    MacFaceCamera *camera = [cameraWarmup beginVerificationReused:&reused prepared:&prepared];
                     try {
-                        if ([camera start]) {
-                            verified = turn ? checkMovement(camera, matcher, reference) : checkGlance(camera, matcher, reference);
+                        if (camera) {
+                            cameraMs = elapsedMilliseconds(requestStarted);
+                            verified = checkGlance(camera, *matcher, reference, prepared, usedPreparation);
                         } else {
                             os_log_error(OS_LOG_DEFAULT, "MacFace: no external camera");
                         }
                     } catch (const cv::Exception &) {
                         os_log_error(OS_LOG_DEFAULT, "MacFace: recognition failed");
                     }
-                    [camera stop];
-                    verified = verified && sessionIsLocked();
+                    verified = verified && MacFaceSessionIsLocked();
                     MacFaceSendVerdict(client, nonce, verified, 500);
-                    os_log(OS_LOG_DEFAULT, "MacFace: %{public}s check %{public}s", turn ? "movement" : "glance", verified ? "passed" : "denied");
+                    os_log(OS_LOG_DEFAULT, "MacFace: glance check %{public}s, camera=%ld ms total=%ld ms prewarmed=%d early=%d",
+                           verified ? "passed" : "denied",
+                           cameraMs, elapsedMilliseconds(requestStarted), reused, usedPreparation);
+                    [cameraWarmup endVerification:camera];
                 }
                 close(client);
             }
         }
         close(listener);
+        dispatch_async(dispatch_get_main_queue(), ^{ [cameraWarmup stopWatching]; });
+        updateStatus(menu, @"识别后台未就绪");
     }
 }
 
@@ -244,25 +192,28 @@ int main(void) {
         return 1;
     }
     @autoreleasepool {
-        if (loadTemplate().empty()) {
-            os_log(OS_LOG_DEFAULT, "MacFace: waiting for enrollment");
-            return 0;
-        }
         [NSApplication sharedApplication];
         [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
-        [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL granted) {
-            if (!granted) {
-                os_log_error(OS_LOG_DEFAULT, "MacFace: camera permission denied");
-            } else {
-                dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-                    try {
-                        serve();
-                    } catch (const cv::Exception &) {
-                        os_log_error(OS_LOG_DEFAULT, "MacFace: model initialization failed");
-                    }
-                });
-            }
-        }];
+        __attribute__((objc_precise_lifetime)) MacFaceStatusMenu *menu = [[MacFaceStatusMenu alloc] init];
+        if (loadTemplate().empty()) {
+            [menu setStatusMessage:@"等待录入人脸"];
+        } else {
+            [AVCaptureDevice requestAccessForMediaType:AVMediaTypeVideo completionHandler:^(BOOL granted) {
+                if (!granted) {
+                    updateStatus(menu, @"请允许摄像头权限");
+                    os_log_error(OS_LOG_DEFAULT, "MacFace: camera permission denied");
+                } else {
+                    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+                        try {
+                            serve(menu);
+                        } catch (const cv::Exception &) {
+                            updateStatus(menu, @"识别模型无法加载");
+                            os_log_error(OS_LOG_DEFAULT, "MacFace: model initialization failed");
+                        }
+                    });
+                }
+            }];
+        }
         [NSApp run];
     }
 }

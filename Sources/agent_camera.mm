@@ -12,6 +12,8 @@
     NSCondition *_delivery;
     cv::Mat _latest;
     uint64_t _version;
+    BOOL _delivering;
+    BOOL _discardNext;
 }
 
 - (instancetype)init {
@@ -60,10 +62,19 @@
     return session.isRunning;
 }
 
+- (void)beginFrameDelivery {
+    [_delivery lock];
+    _latest.release();
+    _discardNext = YES;
+    _delivering = YES;
+    [_delivery unlock];
+}
+
 - (void)stop {
     [_session stopRunning];
     _session = nil;
     [_delivery lock];
+    _delivering = NO;
     _latest.release();
     [_delivery unlock];
 }
@@ -89,8 +100,15 @@
        fromConnection:(AVCaptureConnection *)connection {
     (void)output;
     (void)connection;
+    [_delivery lock];
+    if (!_delivering || _discardNext) {
+        _discardNext = NO;
+        [_delivery unlock];
+        return;
+    }
     CVPixelBufferRef pixels = CMSampleBufferGetImageBuffer(sample);
     if (!pixels || CVPixelBufferLockBaseAddress(pixels, kCVPixelBufferLock_ReadOnly) != kCVReturnSuccess) {
+        [_delivery unlock];
         return;
     }
     cv::Mat bgra((int)CVPixelBufferGetHeight(pixels), (int)CVPixelBufferGetWidth(pixels),
@@ -99,7 +117,6 @@
     cv::cvtColor(bgra, bgr, cv::COLOR_BGRA2BGR);
     CVPixelBufferUnlockBaseAddress(pixels, kCVPixelBufferLock_ReadOnly);
 
-    [_delivery lock];
     _latest = std::move(bgr);
     ++_version;
     [_delivery broadcast];

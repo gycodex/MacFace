@@ -20,6 +20,7 @@ static cv::Mat readFrame(const char *path) {
 int main(int argc, char **argv) {
     if (argc != 4) return 1;
     NativeFaceMatcher matcher(argv[1]);
+    matcher.warmUp();
     cv::Mat genuine = readFrame(argv[2]);
     cv::Mat spoof = readFrame(argv[3]);
     auto genuineTemplate = matcher.embedding(genuine);

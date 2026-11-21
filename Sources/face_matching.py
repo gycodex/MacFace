@@ -1,14 +1,11 @@
 """Local camera matching pilot. Enrollment is kept in memory."""
 from pathlib import Path
 import os
-import secrets
 import sys
 import time
 
 import cv2
 import numpy as np
-
-from Sources.liveness import TurnChallenge
 
 ROOT = Path(__file__).resolve().parents[1]
 MATCH_THRESHOLD = 0.50
@@ -43,7 +40,6 @@ class FaceMatcher:
         eye_distance = np.linalg.norm(eyes[1] - eyes[0])
         if not np.isfinite(eye_distance) or eye_distance < 10:
             return None
-        # The camera preview is mirrored, so positive means right on screen.
         pose = (eyes[:, 0].mean() - nose_x) / eye_distance
         return (embedding, float(pose)) if np.isfinite(pose) else None
 
@@ -64,8 +60,6 @@ def run_camera(enrollment_path=None):
         raise RuntimeError("Could not open camera. Allow Terminal in Privacy & Security > Camera.")
 
     reference = None
-    challenge = None
-    next_observation = 0.0
     status = "Face the camera and click Enroll"
     buttons = (("Enroll", ord("e")), ("Verify", ord("v")), ("Quit", ord("q")))
     action = None
@@ -105,25 +99,6 @@ def run_camera(enrollment_path=None):
                 key, action = action, None
             if key in (ord("q"), 27) or cv2.getWindowProperty(WINDOW, cv2.WND_PROP_VISIBLE) < 1:
                 return
-            now = time.monotonic()
-            if challenge is not None:
-                if now >= next_observation:
-                    next_observation = now + 0.12
-                    sample = matcher.sample(frame)
-                    identified = sample and matcher.score(reference, sample[0]) >= MATCH_THRESHOLD
-                    challenge.update(sample[1] if identified else None, now)
-                    if challenge.status == "active":
-                        status = challenge.prompt() + " and hold briefly"
-                    else:
-                        result = challenge.status
-                        status = {
-                            "passed": "Match and movement check passed",
-                            "expired": "Time ran out. Click Verify to retry.",
-                            "failed": "Face lost or changed. Click Verify to retry.",
-                        }[result]
-                        print(f"Movement check: {result}", flush=True)
-                        challenge = None
-                continue
             if key not in (ord("e"), ord("v")):
                 continue
             if key == ord("v") and reference is None:
@@ -156,10 +131,8 @@ def run_camera(enrollment_path=None):
                 status = "Face did not match. Click Verify to retry."
                 print(f"No match | score {score:.3f}", flush=True)
                 continue
-            challenge = TurnChallenge(secrets.choice((-1, 1)), pose, now)
-            next_observation = now
-            status = challenge.prompt() + " and hold briefly"
-            print(f"Movement check started | score {score:.3f}", flush=True)
+            status = f"Match | score {score:.3f} | threshold {MATCH_THRESHOLD:.2f}"
+            print(status, flush=True)
     finally:
         camera.release()
         cv2.destroyAllWindows()

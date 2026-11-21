@@ -14,6 +14,8 @@ endforeach()
 add_executable(MacFaceAgent MACOSX_BUNDLE
     face_agent.mm
     agent_camera.mm
+    camera_warmup.mm
+    status_menu.mm
     native_matching.cpp
     auth_exchange.c
 )

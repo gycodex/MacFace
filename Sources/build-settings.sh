@@ -4,11 +4,12 @@ cd "$(dirname "$0")/.."
 app=build/MacFace.app
 resources="$app/Contents/Resources"
 helpers="$app/Contents/Helpers"
+agentBuild="${MACFACE_AGENT_BUILD_DIR:-build/native/agent}"
 mkdir -p "$resources" "$helpers" "$app/Contents/MacOS"
 cp Sources/SettingsInfo.plist "$app/Contents/Info.plist"
 xcrun swiftc -parse-as-library -warnings-as-errors -O Sources/MacFaceSettings.swift -o "$app/Contents/MacOS/MacFace"
-cmake --build build/native/agent --target MacFaceEnroll
-cp build/native/agent/MacFaceEnroll "$helpers/MacFaceEnroll"
+cmake --build "$agentBuild" --target MacFaceEnroll
+cp "$agentBuild/MacFaceEnroll" "$helpers/MacFaceEnroll"
 cp build/models/{yunet,sface}.onnx Sources/save-enrollment.sh "$resources/"
 codesign --force --sign - --options runtime "$helpers/MacFaceEnroll"
 

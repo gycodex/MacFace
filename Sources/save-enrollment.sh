@@ -10,18 +10,19 @@ account=$(id -un "$uid")
 template="$base/enrollment-$uid.bin"
 service="gui/$uid/com.macface.agent"
 socket="/tmp/com.macface.agent.$uid.sock"
+launchAgent=/Library/LaunchAgents/com.macface.agent.plist
 if [[ "$input" == --remove ]]; then
     /bin/launchctl bootout "$service" >/dev/null 2>&1 || true
     if [[ -S "$socket" && "$(stat -f %u "$socket")" == "$uid" ]]; then
         /bin/rm -f "$socket"
     fi
     /bin/rm -f "$template"
+    /bin/launchctl bootstrap "gui/$uid" "$launchAgent"
     exit 0
 fi
 [[ -f "$input" && ! -L "$input" && "$(stat -f '%u:%z' "$input")" == "$uid:512" ]]
 staged=$(mktemp "$base/enrollment-new.XXXXXX")
 backup=$(mktemp "$base/enrollment-backup.XXXXXX")
-launchAgent=/Library/LaunchAgents/com.macface.agent.plist
 hadTemplate=0
 replaced=0
 stopped=0
@@ -61,7 +62,6 @@ fi
 [[ "$(stat -f %z "$staged")" == 512 ]]
 /bin/chmod +a "user:$account allow read" "$staged"
 
-# Stop the worker before swapping the protected template.
 stopped=1
 /bin/launchctl bootout "$service" >/dev/null 2>&1 || true
 /bin/mv -f "$staged" "$template"

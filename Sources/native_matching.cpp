@@ -75,19 +75,6 @@ NativeFaceMatcher::NativeFaceMatcher(const std::string &modelDirectory)
 
 NativeFaceMatcher::~NativeFaceMatcher() = default;
 
-std::optional<double> NativeFaceMatcher::verifiedPose(const cv::Mat &bgr, const cv::Mat &enrolled) {
-    if (enrolled.type() != CV_32F || enrolled.rows != 1 || enrolled.cols != 128 ||
-        !cv::checkRange(enrolled) || cv::norm(enrolled) <= 1e-6) {
-        return std::nullopt;
-    }
-    auto sample = impl->sample(bgr);
-    if (!sample) {
-        return std::nullopt;
-    }
-    const double similarity = impl->recognizer->match(enrolled, sample->features, cv::FaceRecognizerSF::FR_COSINE);
-    return similarity >= 0.50 ? std::optional(sample->pose) : std::nullopt;
-}
-
 std::optional<cv::Mat> NativeFaceMatcher::frontalEmbedding(const cv::Mat &bgr) {
     auto sample = impl->sample(bgr);
     if (!sample || std::abs(sample->pose) > 0.23) {
@@ -99,6 +86,20 @@ std::optional<cv::Mat> NativeFaceMatcher::frontalEmbedding(const cv::Mat &bgr) {
 std::optional<cv::Mat> NativeFaceMatcher::embedding(const cv::Mat &bgr) {
     auto sample = impl->sample(bgr);
     return sample ? std::optional(sample->features) : std::nullopt;
+}
+
+void NativeFaceMatcher::warmUp() {
+    const cv::Mat bgr = cv::Mat::zeros(480, 640, CV_8UC3);
+    impl->detector->setInputSize(bgr.size());
+    cv::Mat features;
+    impl->detector->detect(bgr, features);
+    impl->recognizer->feature(cv::Mat::zeros(112, 112, CV_8UC3), features);
+
+    if (impl->liveness.empty()) {
+        impl->liveness = cv::dnn::readNetFromONNX(impl->livenessPath);
+    }
+    impl->liveness.setInput(cv::dnn::blobFromImage(cv::Mat::zeros(80, 80, CV_8UC3)));
+    impl->liveness.forward();
 }
 
 bool NativeFaceMatcher::verifiedGlance(const cv::Mat &bgr, const cv::Mat &enrolled) {

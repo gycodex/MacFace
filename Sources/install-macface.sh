@@ -141,7 +141,6 @@ cat <<'PLIST' | "$security" authorizationdb write "$right"
 <key>tries</key><integer>1</integer>
 </dict></plist>
 PLIST
-# Keep the native password check ahead of MacFace.
 "$security" authorizationdb read "$lock" > "$work/current.plist"
 cmp -s "$original" "$work/current.plist" || { echo "Screen-unlock rule changed during installation"; exit 1; }
 "$security" authorizationdb write "$lock" < "$candidate"

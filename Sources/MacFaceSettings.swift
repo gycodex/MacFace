@@ -3,21 +3,19 @@ import Combine
 import SwiftUI
 
 enum UnlockMode: String, CaseIterable, Identifiable {
-    case glance, turn, password
+    case glance, password
     var id: Self { self }
 
     var title: String {
         switch self {
         case .glance: "看一眼"
-        case .turn: "转头验证"
         case .password: "仅用密码"
         }
     }
 
     var detail: String {
         switch self {
-        case .glance: "唤醒锁屏后正对镜头。通过验证即可解锁。"
-        case .turn: "按语音提示转头，再回到正面。"
+        case .glance: "唤醒锁屏，留空按回车并看向镜头。"
         case .password: "暂停人脸解锁，使用 macOS 密码。"
         }
     }
@@ -25,7 +23,6 @@ enum UnlockMode: String, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .glance: "faceid"
-        case .turn: "arrow.left.and.right"
         case .password: "key"
         }
     }
@@ -36,7 +33,7 @@ struct MacFaceSettingsApp: App {
     var body: some Scene {
         Window("MacFace", id: "settings") {
             SettingsView()
-                .frame(width: 510)
+                .frame(width: 490)
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
@@ -45,8 +42,10 @@ struct MacFaceSettingsApp: App {
 
 struct SettingsView: View {
     @AppStorage("ScreenUnlockMode", store: UserDefaults(suiteName: "com.macface.settings"))
-    private var mode: UnlockMode = .glance
+    private var storedMode = UnlockMode.glance.rawValue
+    private var mode: UnlockMode { UnlockMode(rawValue: storedMode) ?? .password }
     @State private var showingPreview = false
+    @State private var showingHelp = false
     @State private var showingEnrollment = false
     @State private var enrolled = false
     @State private var confirmingRemoval = false
@@ -56,77 +55,95 @@ struct SettingsView: View {
     private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            HStack(spacing: 14) {
-                Image(systemName: "faceid")
-                    .font(.system(size: 28, weight: .medium))
-                    .foregroundStyle(.tint)
-                    .frame(width: 55, height: 55)
-                    .background(.tint.opacity(0.11), in: RoundedRectangle(cornerRadius: 15))
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(spacing: 12) {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath))
+                    .resizable()
+                    .frame(width: 50, height: 50)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 4) {
                     Text("锁屏解锁").font(.title2.weight(.semibold))
-                    Label(backendReady ? "识别后台正在运行" : (enrolled ? "识别后台未运行" : "等待录入人脸"),
-                          systemImage: backendReady ? "circle.fill" : "circle")
+                    Label(backendReady ? "后台就绪" : (enrolled ? "后台未就绪" : "等待录入人脸"),
+                          systemImage: "circle.fill")
                         .font(.caption)
                         .foregroundStyle(backendReady ? Color.green : Color.secondary)
                 }
                 Spacer()
-                Button("预览摄像头") { showingPreview = true }
-            }
-            HStack(spacing: 12) {
-                Image(systemName: enrolled ? "person.crop.circle.badge.checkmark" : "person.crop.circle")
-                    .imageScale(.large)
-                    .foregroundStyle(.secondary)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("人脸录入").fontWeight(.medium)
-                    Text(enrolled ? "已录入 · 人脸特征仅保存在本机" : "录入后即可使用人脸解锁")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button(enrolled ? "重新录入" : "录入人脸") { showingEnrollment = true }
-                    .disabled(removalInProgress)
-                if enrolled {
-                    Button("删除", systemImage: "trash", role: .destructive) { confirmingRemoval = true }
-                        .labelStyle(.iconOnly)
-                        .help("删除本机人脸录入")
-                        .disabled(removalInProgress)
-                }
-            }
-            VStack(spacing: 0) {
-                ForEach(UnlockMode.allCases) { option in
-                    Button {
-                        mode = option
-                    } label: {
-                        HStack(spacing: 14) {
-                            Image(systemName: option.icon)
-                                .imageScale(.medium)
-                                .frame(width: 25)
-                                .foregroundStyle(.secondary)
-                                .accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(option.title).fontWeight(.medium)
-                                Text(option.detail).font(.subheadline).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: mode == option ? "largecircle.fill.circle" : "circle")
-                                .foregroundStyle(mode == option ? Color.accentColor : Color.secondary)
-                                .accessibilityHidden(true)
-                        }
-                        .padding(.horizontal, 15)
-                        .padding(.vertical, 13)
-                        .contentShape(Rectangle())
-                    }
+                Button("解锁原理", systemImage: "questionmark.circle") { showingHelp.toggle() }
+                    .labelStyle(.iconOnly)
                     .buttonStyle(.plain)
-                    .accessibilityAddTraits(mode == option ? [.isSelected] : [])
-                    if option != .password {
-                        Divider().padding(.leading, 54)
+                    .font(.title3)
+                    .help("了解 MacFace 如何解锁")
+                    .popover(isPresented: $showingHelp, arrowEdge: .top) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("MacFace 如何解锁").font(.headline)
+                            Text("在「看一眼」模式下，锁屏亮起时，摄像头会短暂预热并提前识别人脸。")
+                            Text("留空按回车才会提交解锁。MacFace 会再核对一帧新画面，确认你还在镜头前。")
+                            Text("也可以直接输入正确密码。人脸特征仅保存在本机，摄像头画面不会保存。")
+                        }
+                        .font(.subheadline)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(16)
+                        .frame(width: 305)
+                    }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("解锁方式").font(.headline)
+                VStack(spacing: 0) {
+                    ForEach(UnlockMode.allCases) { option in
+                        Button {
+                            storedMode = option.rawValue
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: option.icon)
+                                    .frame(width: 22)
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityHidden(true)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(option.title).fontWeight(.medium)
+                                    Text(option.detail).font(.subheadline).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Image(systemName: mode == option ? "largecircle.fill.circle" : "circle")
+                                    .foregroundStyle(mode == option ? Color.accentColor : Color.secondary)
+                                    .accessibilityHidden(true)
+                            }
+                            .padding(.horizontal, 13)
+                            .padding(.vertical, 10)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(mode == option ? [.isSelected] : [])
+                        if option == .glance {
+                            Divider().padding(.leading, 46)
+                        }
                     }
                 }
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
             }
-            .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
-            Label("按 ⌃⌘Q 锁屏。密码框留空按回车可刷脸，也可直接输入密码。", systemImage: "lock")
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("人脸录入").font(.headline)
+                HStack(spacing: 9) {
+                    Text(enrolled ? "已录入" : "尚未录入")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("预览摄像头") { showingPreview = true }
+                    Button(enrolled ? "重新录入" : "录入人脸") { showingEnrollment = true }
+                        .disabled(removalInProgress)
+                    if enrolled {
+                        Button("删除", systemImage: "trash", role: .destructive) { confirmingRemoval = true }
+                            .labelStyle(.iconOnly)
+                            .help("删除本机人脸录入")
+                            .disabled(removalInProgress)
+                    }
+                }
+                .padding(12)
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
+            }
+
+            Label("按 ⌃⌘Q 锁屏。系统密码始终可用。", systemImage: "lock")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

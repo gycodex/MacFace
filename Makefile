@@ -24,13 +24,18 @@ build/test_auth_exchange: Tests/test_auth_exchange.c Sources/auth_exchange.c Sou
 	xcrun clang $(CFLAGS) Tests/test_auth_exchange.c Sources/auth_exchange.c -framework Security -framework CoreFoundation -o "$@"
 	codesign --force --sign - --identifier com.macface.exchange-test "$@"
 
-test: $(BINARY) build/probe_test build/test_auth_exchange
+build/test_early_glance: Tests/test_early_glance.cpp Sources/early_glance.hpp Makefile
+	mkdir -p build
+	xcrun clang++ -std=c++17 $(CFLAGS) Tests/test_early_glance.cpp -o "$@"
+
+test: $(BINARY) build/probe_test build/test_auth_exchange build/test_early_glance
 	plutil -lint "$(BUNDLE)/Contents/Info.plist"
 	codesign --verify --strict "$(BUNDLE)"
 	build/probe_test "$(abspath $(BINARY))"
 	hash=$$(codesign -dvvv build/test_auth_exchange 2>&1 | sed -n 's/^CDHash=//p'); \
 	    test -n "$$hash" && build/test_auth_exchange "cdhash H\"$$hash\""
 	bash Tests/test_lock_rule.sh
+	build/test_early_glance
 
 .PHONY: release
 release:

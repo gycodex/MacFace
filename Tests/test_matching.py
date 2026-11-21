@@ -30,26 +30,3 @@ class MatchingTest(unittest.TestCase):
 
     def test_rejects_frames_without_a_face(self):
         self.assertIsNone(self.matcher.extract(np.zeros_like(self.first)))
-
-    def test_single_photo_with_position_and_size_changes_times_out(self):
-        from Sources.liveness import TurnChallenge
-
-        baseline = self.matcher.sample(self.first)
-        self.assertIsNotNone(baseline)
-        reference, center = baseline
-        challenge = TurnChallenge(1, center, 0)
-        height, width = self.first.shape[:2]
-        variations = []
-        for scale, shift in ((0.90, -18), (1.0, 0), (1.10, 21)):
-            transform = cv2.getRotationMatrix2D((width / 2, height / 2), 0, scale)
-            transform[0, 2] += shift
-            moved = cv2.warpAffine(self.first, transform, (width, height))
-            sample = self.matcher.sample(moved)
-            self.assertIsNotNone(sample)
-            embedding, pose = sample
-            self.assertGreaterEqual(self.matcher.score(reference, embedding), MATCH_THRESHOLD)
-            variations.append(pose)
-
-        for index in range(1, 42):
-            challenge.update(variations[index % len(variations)], index * 0.3)
-        self.assertEqual(challenge.status, "expired")
