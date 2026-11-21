@@ -18,6 +18,10 @@
   <a href="#从源码构建">从源码构建</a>
 </p>
 
+<p align="center">
+  <img src="Assets/MacFace-Settings.png" width="520" alt="MacFace 实机设置截图，显示自动刷脸、回车刷脸、人脸录入与退出入口">
+</p>
+
 ## 功能
 
 - **锁屏亮起，看一眼就解锁。** 自动刷脸通过后会向 macOS 提交验证，无需按回车、移动鼠标或转头。可以随时切换到回车刷脸。
@@ -42,7 +46,7 @@
 如果辅助功能列表里没有 MacFace 后台，点「＋」，按 `⇧⌘G` 前往 `/Library/Application Support/MacFace`，选择 `MacFaceAgent.app`。授权后如果仍需回车，点「退出 MacFace」，再从「应用程序」重新打开。覆盖安装后如果授权失效，可在辅助功能列表中重新添加该后台。
 
 > [!IMPORTANT]
-> 需要 Apple 芯片和 macOS 27。源码支持 MacBook 内置摄像头和外置 UVC 摄像头，当前 v1.0.3 安装包仅支持外置 UVC 摄像头。安装包未签名、未公证，macOS 可能拦截打开。覆盖安装会保留现有录入。
+> 需要 Apple 芯片和 macOS 27。支持 MacBook 内置摄像头和外置 UVC 摄像头。内置摄像头尚未在 MacBook 实机验证。安装包未签名、未公证，macOS 可能拦截打开。覆盖安装会保留现有录入。
 
 ## 退出与隐私
 
