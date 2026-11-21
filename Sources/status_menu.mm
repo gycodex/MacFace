@@ -1,5 +1,6 @@
 #import "status_menu.h"
 #import "settings_keys.h"
+#import <os/log.h>
 
 @interface MacFaceStatusMenu () <NSMenuDelegate>
 @end
@@ -49,8 +50,27 @@
         }
         _modes = [modes copy];
         _item.menu = menu;
+        [[NSDistributedNotificationCenter defaultCenter] addObserver:self
+            selector:@selector(refreshVisibility:) name:MacFaceMenuBarIconChanged object:nil];
+        [self refreshVisibility:nil];
     }
     return self;
+}
+
+- (void)dealloc {
+    [[NSDistributedNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (void)refreshVisibility:(NSNotification *)notification {
+    (void)notification;
+    CFPreferencesAppSynchronize((__bridge CFStringRef)MacFaceSettingsDomain);
+    NSUserDefaults *settings = [[NSUserDefaults alloc] initWithSuiteName:MacFaceSettingsDomain];
+    NSNumber *saved = [settings objectForKey:MacFaceMenuBarIconKey];
+    BOOL visible = !saved || [saved boolValue];
+    if (_item.visible != visible) {
+        _item.visible = visible;
+        os_log(OS_LOG_DEFAULT, "MacFace: menu bar icon visible=%d", _item.visible);
+    }
 }
 
 - (void)setStatusMessage:(NSString *)message {

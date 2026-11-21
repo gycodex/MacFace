@@ -43,6 +43,8 @@ struct MacFaceSettingsApp: App {
 struct SettingsView: View {
     @AppStorage("ScreenUnlockMode", store: UserDefaults(suiteName: "com.macface.settings"))
     private var storedMode = UnlockMode.glance.rawValue
+    @AppStorage("ShowsMenuBarIcon", store: UserDefaults(suiteName: "com.macface.settings"))
+    private var showsMenuBarIcon = true
     private var mode: UnlockMode { UnlockMode(rawValue: storedMode) ?? .password }
     @State private var showingPreview = false
     @State private var showingHelp = false
@@ -69,23 +71,19 @@ struct SettingsView: View {
                         .foregroundStyle(backendReady ? Color.green : Color.secondary)
                 }
                 Spacer()
-                Button("解锁原理", systemImage: "questionmark.circle") { showingHelp.toggle() }
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.plain)
-                    .font(.title3)
-                    .help("了解 MacFace 如何解锁")
-                    .popover(isPresented: $showingHelp, arrowEdge: .top) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("MacFace 如何解锁").font(.headline)
-                            Text("在「看一眼」模式下，锁屏亮起时，摄像头会短暂预热并提前识别人脸。")
-                            Text("留空按回车才会提交解锁。MacFace 会再核对一帧新画面，确认你还在镜头前。")
-                            Text("也可以直接输入正确密码。人脸特征仅保存在本机，摄像头画面不会保存。")
-                        }
-                        .font(.subheadline)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(16)
-                        .frame(width: 305)
+                Toggle("菜单栏图标", isOn: $showsMenuBarIcon)
+                    .accessibilityLabel("在菜单栏显示图标")
+                    .fixedSize()
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .onChange(of: showsMenuBarIcon) {
+                        CFPreferencesAppSynchronize("com.macface.settings" as CFString)
+                        DistributedNotificationCenter.default().postNotificationName(
+                            Notification.Name("com.macface.settings.menu-bar-icon-changed"),
+                            object: nil, userInfo: nil, deliverImmediately: true
+                        )
                     }
+                    .help("隐藏图标后，仍可从「应用程序」打开 MacFace。")
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -143,9 +141,38 @@ struct SettingsView: View {
                 .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10))
             }
 
-            Label("按 ⌃⌘Q 锁屏。系统密码始终可用。", systemImage: "lock")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            HStack {
+                Label("按 ⌃⌘Q 锁屏。系统密码始终可用。", systemImage: "lock")
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button("解锁原理", systemImage: "info.circle") { showingHelp.toggle() }
+                    .buttonStyle(.link)
+                    .popover(isPresented: $showingHelp, arrowEdge: .bottom) {
+                        VStack(alignment: .leading, spacing: 13) {
+                            Text("MacFace 如何解锁").font(.headline)
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("怎么刷脸").fontWeight(.semibold)
+                                Text("唤醒原生锁屏，密码框留空，按回车并看向摄像头。")
+                            }
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("为什么要按回车").fontWeight(.semibold)
+                                Text("锁屏亮起时，MacFace 会提前识别。按回车后才会再核对新画面，并向 macOS 提交解锁。")
+                            }
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("密码与隐私").fontWeight(.semibold)
+                                Text("随时可以直接输入系统密码。MacFace 只在本机保存人脸特征，不保存摄像头画面。")
+                            }
+                        }
+                        .font(.subheadline)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(16)
+                        .frame(width: 310)
+                    }
+            }
+            .font(.footnote)
         }
         .padding(24)
         .onAppear(perform: refreshStatus)

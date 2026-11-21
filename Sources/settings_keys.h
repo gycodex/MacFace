@@ -3,6 +3,8 @@
 #import <Foundation/Foundation.h>
 
 static NSString *const MacFaceSettingsDomain = @"com.macface.settings";
+static NSString *const MacFaceMenuBarIconKey = @"ShowsMenuBarIcon";
+static NSString *const MacFaceMenuBarIconChanged = @"com.macface.settings.menu-bar-icon-changed";
 static NSString *const MacFaceModeKey = @"ScreenUnlockMode";
 static NSString *const MacFaceModeGlance = @"glance";
 static NSString *const MacFaceModePassword = @"password";
