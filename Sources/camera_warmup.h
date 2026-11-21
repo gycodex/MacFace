@@ -1,5 +1,6 @@
 #import <Foundation/Foundation.h>
 #import "agent_camera.h"
+#import "lock_feedback.h"
 
 BOOL MacFaceSessionIsLocked(void);
 
@@ -9,4 +10,5 @@ BOOL MacFaceSessionIsLocked(void);
 - (void)stopWatching;
 - (MacFaceCamera *)beginVerificationReused:(BOOL *)reused prepared:(BOOL *)prepared;
 - (void)endVerification:(MacFaceCamera *)camera;
+- (void)updateFeedback:(MacFaceFeedbackState)state;
 @end

@@ -75,9 +75,9 @@ NativeFaceMatcher::NativeFaceMatcher(const std::string &modelDirectory)
 
 NativeFaceMatcher::~NativeFaceMatcher() = default;
 
-std::optional<cv::Mat> NativeFaceMatcher::frontalEmbedding(const cv::Mat &bgr) {
+std::optional<cv::Mat> NativeFaceMatcher::enrollmentEmbedding(const cv::Mat &bgr, EnrollmentPose pose) {
     auto sample = impl->sample(bgr);
-    if (!sample || std::abs(sample->pose) > 0.23) {
+    if (!sample || enrollmentPose(sample->pose) != pose) {
         return std::nullopt;
     }
     return sample->features;

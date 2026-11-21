@@ -168,7 +168,9 @@ static void serve(MacFaceStatusMenu *menu) {
                         os_log_error(OS_LOG_DEFAULT, "MacFace: recognition failed");
                     }
                     verified = verified && MacFaceSessionIsLocked();
-                    MacFaceSendVerdict(client, nonce, verified, 500);
+                    if (verified) [cameraWarmup updateFeedback:MacFaceFeedbackAccepted];
+                    const bool delivered = MacFaceSendVerdict(client, nonce, verified, 500);
+                    if (!verified || !delivered) [cameraWarmup updateFeedback:MacFaceFeedbackFailed];
                     os_log(OS_LOG_DEFAULT, "MacFace: glance check %{public}s, camera=%ld ms total=%ld ms prewarmed=%d early=%d",
                            verified ? "passed" : "denied",
                            cameraMs, elapsedMilliseconds(requestStarted), reused, usedPreparation);

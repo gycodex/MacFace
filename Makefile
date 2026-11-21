@@ -28,7 +28,11 @@ build/test_early_glance: Tests/test_early_glance.cpp Sources/early_glance.hpp Ma
 	mkdir -p build
 	xcrun clang++ -std=c++17 $(CFLAGS) Tests/test_early_glance.cpp -o "$@"
 
-test: $(BINARY) build/probe_test build/test_auth_exchange build/test_early_glance
+build/test_enrollment_pose: Tests/test_enrollment_pose.cpp Sources/enrollment_pose.hpp Makefile
+	mkdir -p build
+	xcrun clang++ -std=c++17 $(CFLAGS) Tests/test_enrollment_pose.cpp -o "$@"
+
+test: build/test_enrollment_pose $(BINARY) build/probe_test build/test_auth_exchange build/test_early_glance
 	plutil -lint "$(BUNDLE)/Contents/Info.plist"
 	codesign --verify --strict "$(BUNDLE)"
 	build/probe_test "$(abspath $(BINARY))"
@@ -36,6 +40,7 @@ test: $(BINARY) build/probe_test build/test_auth_exchange build/test_early_glanc
 	    test -n "$$hash" && build/test_auth_exchange "cdhash H\"$$hash\""
 	bash Tests/test_lock_rule.sh
 	build/test_early_glance
+	build/test_enrollment_pose
 
 .PHONY: release
 release:

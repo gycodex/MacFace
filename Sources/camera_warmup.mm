@@ -1,8 +1,10 @@
 #import "camera_warmup.h"
 #import "settings_keys.h"
 #include "early_glance.hpp"
+#import <Carbon/Carbon.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <os/log.h>
+#include <unistd.h>
 
 BOOL MacFaceSessionIsLocked(void) {
     NSDictionary *state = CFBridgingRelease(CGSessionCopyCurrentDictionary());
@@ -11,8 +13,44 @@ BOOL MacFaceSessionIsLocked(void) {
 }
 
 static BOOL canWarmCamera(void) {
-    return [MacFaceUnlockMode() isEqualToString:MacFaceModeGlance] &&
+    return ![MacFaceUnlockMode() isEqualToString:MacFaceModePassword] &&
         MacFaceSessionIsLocked() && !CGDisplayIsAsleep(CGMainDisplayID());
+}
+
+static BOOL submitFaceUnlock(double armedAt) {
+    if (![MacFaceUnlockMode() isEqualToString:MacFaceModeAutomatic] ||
+        CGDisplayIsAsleep(CGMainDisplayID())) {
+        return NO;
+    }
+    if (!CGPreflightPostEventAccess()) {
+        os_log(OS_LOG_DEFAULT, "MacFace: automatic unlock needs Accessibility permission");
+        return NO;
+    }
+    NSDictionary *session = CFBridgingRelease(CGSessionCopyCurrentDictionary());
+    if (![session[@"CGSSessionScreenIsLocked"] boolValue] ||
+        ![session[(__bridge NSString *)kCGSessionOnConsoleKey] boolValue] ||
+        [session[(__bridge NSString *)kCGSessionUserIDKey] unsignedIntValue] != getuid()) {
+        return NO;
+    }
+    const double timeSinceKeyDown = CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGEventKeyDown);
+    if (timeSinceKeyDown < NSProcessInfo.processInfo.systemUptime - armedAt) return NO;
+
+    CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
+    if (!source) return NO;
+    CGEventRef down = CGEventCreateKeyboardEvent(source, kVK_Return, true);
+    CGEventRef up = CGEventCreateKeyboardEvent(source, kVK_Return, false);
+    const BOOL posted = down && up && MacFaceSessionIsLocked();
+    if (posted) {
+        CGEventSetFlags(down, 0);
+        CGEventSetFlags(up, 0);
+        CGEventPost(kCGHIDEventTap, down);
+        [NSThread sleepForTimeInterval:0.012];
+        CGEventPost(kCGHIDEventTap, up);
+    }
+    if (down) CFRelease(down);
+    if (up) CFRelease(up);
+    CFRelease(source);
+    return posted;
 }
 
 @implementation MacFaceCameraWarmup {
@@ -21,11 +59,20 @@ static BOOL canWarmCamera(void) {
     uint64_t _generation;
     BOOL _verifying;
     NSTimer *_timer;
+    NSArray<id> *_screenObservers;
     BOOL _eligible;
+    BOOL _lastLocked;
+    BOOL _lastAutomatic;
     BOOL (^_analyzer)(const cv::Mat &);
     EarlyGlance _earlyGlance;
     uint64_t _frameVersion;
     double _warmupStarted;
+    BOOL _reportedFirstFrame;
+    MacFaceLockFeedback *_feedback;
+    BOOL _feedbackReady;
+    BOOL _autoSubmitPending;
+    double _autoKeyboardBaseline;
+    double _automaticSubmittedAt;
 }
 
 - (instancetype)initWithAnalyzer:(BOOL (^)(const cv::Mat &))analyzer {
@@ -37,7 +84,18 @@ static BOOL canWarmCamera(void) {
 }
 
 - (void)startWatching {
+    _feedback = [[MacFaceLockFeedback alloc] init];
     __weak MacFaceCameraWarmup *weakSelf = self;
+    NSDistributedNotificationCenter *notifications = NSDistributedNotificationCenter.defaultCenter;
+    NSMutableArray<id> *observers = [NSMutableArray array];
+    for (NSString *name in @[@"com.apple.screenIsLocked", @"com.apple.screenIsUnlocked"]) {
+        [observers addObject:[notifications addObserverForName:name object:nil
+            queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *notification) {
+                (void)notification;
+                [weakSelf checkDisplay];
+            }]];
+    }
+    _screenObservers = [observers copy];
     _timer = [NSTimer scheduledTimerWithTimeInterval:0.25 repeats:YES block:^(NSTimer *timer) {
         (void)timer;
         [weakSelf checkDisplay];
@@ -45,17 +103,36 @@ static BOOL canWarmCamera(void) {
 }
 
 - (void)stopWatching {
+    for (id observer in _screenObservers) {
+        [NSDistributedNotificationCenter.defaultCenter removeObserver:observer];
+    }
+    _screenObservers = nil;
     [_timer invalidate];
     _timer = nil;
+    [_feedback showState:MacFaceFeedbackHidden];
     dispatch_async(_queue, ^{ [self stopIdleCapture]; });
 }
 
 - (void)checkDisplay {
-    BOOL eligible = canWarmCamera();
-    if (eligible == _eligible) return;
+    BOOL locked = MacFaceSessionIsLocked();
+    BOOL awake = !CGDisplayIsAsleep(CGMainDisplayID());
+    NSString *mode = MacFaceUnlockMode();
+    BOOL automatic = [mode isEqualToString:MacFaceModeAutomatic];
+    BOOL eligible = locked && awake && ![mode isEqualToString:MacFaceModePassword];
+    [_feedback updateForLockedDisplay:eligible unlocked:!locked];
+    if (eligible == _eligible && locked == _lastLocked && automatic == _lastAutomatic) return;
     _eligible = eligible;
+    _lastLocked = locked;
+    _lastAutomatic = automatic;
+    const double now = NSProcessInfo.processInfo.systemUptime;
     dispatch_async(_queue, ^{
+        self->_autoSubmitPending = eligible && automatic && CGPreflightPostEventAccess();
+        self->_automaticSubmittedAt = 0;
         if (eligible) {
+            self->_autoKeyboardBaseline = now;
+            if (automatic && !self->_autoSubmitPending) {
+                os_log(OS_LOG_DEFAULT, "MacFace: automatic unlock needs Accessibility permission");
+            }
             [self warmCamera];
         } else {
             [self stopIdleCapture];
@@ -63,24 +140,33 @@ static BOOL canWarmCamera(void) {
     });
 }
 
+- (void)updateFeedback:(MacFaceFeedbackState)state {
+    dispatch_async(dispatch_get_main_queue(), ^{ [self->_feedback showState:state]; });
+}
+
 - (void)warmCamera {
     if (_verifying || _waiting || !canWarmCamera()) return;
     MacFaceCamera *camera = [[MacFaceCamera alloc] init];
     uint64_t generation = ++_generation;
     _warmupStarted = NSProcessInfo.processInfo.systemUptime;
+    _reportedFirstFrame = NO;
+    [self updateFeedback:MacFaceFeedbackScanning];
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(EarlyGlance::maxWarmupSeconds * NSEC_PER_SEC)),
                    _queue, ^{
-        if (self->_generation == generation) [self stopIdleCapture];
+        if (self->_generation == generation && self->_automaticSubmittedAt == 0) {
+            [self finishIdleScan];
+        }
     });
+    [camera beginFrameDelivery];
     if ([camera start] && canWarmCamera()) {
         _waiting = camera;
         _earlyGlance = EarlyGlance();
         _frameVersion = 0;
-        [camera beginFrameDelivery];
         [self analyzeIdleFrame:generation];
         os_log(OS_LOG_DEFAULT, "MacFace: camera prewarmed");
     } else {
         [camera stop];
+        [self updateFeedback:MacFaceFeedbackHidden];
     }
 }
 
@@ -95,22 +181,52 @@ static BOOL canWarmCamera(void) {
     BOOL received = [_waiting waitForFrame:frame version:_frameVersion before:[NSDate date]];
     const double now = NSProcessInfo.processInfo.systemUptime;
     if (received) {
+        if (!_reportedFirstFrame) {
+            _reportedFirstFrame = YES;
+            os_log(OS_LOG_DEFAULT, "MacFace: first usable frame in %ld ms", (long)((now - _warmupStarted) * 1000));
+        }
         BOOL matched = _analyzer(frame);
         BOOL wasReady = _earlyGlance.fresh(now);
         _earlyGlance.record(matched, now);
         if (!wasReady && _earlyGlance.fresh(now)) {
-            os_log(OS_LOG_DEFAULT, "MacFace: early verification ready");
+            const long elapsed = (long)((NSProcessInfo.processInfo.systemUptime - _warmupStarted) * 1000);
+            os_log(OS_LOG_DEFAULT, "MacFace: early verification ready, elapsed=%ld ms", elapsed);
         }
     } else {
         _earlyGlance.record(false, now);
     }
-    if (!_earlyGlance.canKeepWarming(NSProcessInfo.processInfo.systemUptime, _warmupStarted)) {
-        [self stopIdleCapture];
+    const BOOL ready = _earlyGlance.fresh(now);
+    if (_autoSubmitPending &&
+        CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGEventKeyDown) < now - _autoKeyboardBaseline) {
+        _autoSubmitPending = NO;
+    }
+    if (ready && _autoSubmitPending) {
+        _autoSubmitPending = NO;
+        if (submitFaceUnlock(_autoKeyboardBaseline)) {
+            _automaticSubmittedAt = NSProcessInfo.processInfo.systemUptime;
+            os_log(OS_LOG_DEFAULT, "MacFace: submitted automatic face unlock");
+        }
+    }
+    if (ready != _feedbackReady) {
+        _feedbackReady = ready;
+        [self updateFeedback:ready ? MacFaceFeedbackReady : MacFaceFeedbackScanning];
+    }
+    const double currentTime = NSProcessInfo.processInfo.systemUptime;
+    const BOOL awaitingSystem = _automaticSubmittedAt > 0 && currentTime - _automaticSubmittedAt < 2.0;
+    if (!awaitingSystem && !_earlyGlance.canKeepWarming(currentTime, _warmupStarted)) {
+        [self finishIdleScan];
         return;
     }
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 160 * NSEC_PER_MSEC), _queue, ^{
+    const int64_t delay = _autoSubmitPending ? 70 : 160;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delay * NSEC_PER_MSEC), _queue, ^{
         [self analyzeIdleFrame:generation];
     });
+}
+
+- (void)finishIdleScan {
+    if (!_waiting) return;
+    [self stopIdleCapture];
+    if (canWarmCamera()) [self updateFeedback:MacFaceFeedbackRetry];
 }
 
 - (void)stopIdleCapture {
@@ -118,6 +234,8 @@ static BOOL canWarmCamera(void) {
     [_waiting stop];
     _waiting = nil;
     _earlyGlance = EarlyGlance();
+    _feedbackReady = NO;
+    [self updateFeedback:MacFaceFeedbackHidden];
     ++_generation;
 }
 
@@ -127,6 +245,7 @@ static BOOL canWarmCamera(void) {
     __block BOOL preverified = NO;
     dispatch_sync(_queue, ^{
         self->_verifying = YES;
+        self->_autoSubmitPending = NO;
         if (!MacFaceSessionIsLocked()) {
             [self stopIdleCapture];
             return;
@@ -137,6 +256,7 @@ static BOOL canWarmCamera(void) {
         }
         camera = self->_waiting;
         self->_waiting = nil;
+        self->_feedbackReady = NO;
         ++self->_generation;
         warm = camera != nil;
         preverified = warm && canWarmCamera() &&
@@ -149,6 +269,7 @@ static BOOL canWarmCamera(void) {
                 camera = nil;
             }
         }
+        if (camera) [self updateFeedback:MacFaceFeedbackScanning];
         [camera beginFrameDelivery];
     });
     if (reused) *reused = warm;

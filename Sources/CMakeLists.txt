@@ -15,6 +15,7 @@ add_executable(MacFaceAgent MACOSX_BUNDLE
     face_agent.mm
     agent_camera.mm
     camera_warmup.mm
+    lock_feedback.mm
     status_menu.mm
     native_matching.cpp
     auth_exchange.c
@@ -30,7 +31,7 @@ target_compile_options(MacFaceAgent PRIVATE -Wall -Wextra
 target_include_directories(MacFaceAgent PRIVATE "${OpenCV_HEADERS}")
 target_link_libraries(MacFaceAgent PRIVATE ${OpenCV_LIBS}
     "-framework AppKit" "-framework AVFoundation" "-framework CoreMedia"
-    "-framework CoreVideo" "-framework Security" "-framework Accelerate"
+    "-framework CoreVideo" "-framework Security" "-framework Accelerate" "-framework QuartzCore"
 )
 
 add_executable(macface_matching_test EXCLUDE_FROM_ALL

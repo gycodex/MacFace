@@ -3,18 +3,20 @@ import Combine
 import SwiftUI
 
 enum UnlockMode: String, CaseIterable, Identifiable {
-    case glance, password
+    case automatic, glance, password
     var id: Self { self }
 
     var title: String {
         switch self {
-        case .glance: "看一眼"
+        case .automatic: "自动刷脸"
+        case .glance: "回车刷脸"
         case .password: "仅用密码"
         }
     }
 
     var detail: String {
         switch self {
+        case .automatic: "锁屏亮起后看一眼就解锁。刚锁屏时直视镜头也会解锁。"
         case .glance: "唤醒锁屏，留空按回车并看向镜头。"
         case .password: "暂停人脸解锁，使用 macOS 密码。"
         }
@@ -22,7 +24,8 @@ enum UnlockMode: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .glance: "faceid"
+        case .automatic: "faceid"
+        case .glance: "return"
         case .password: "key"
         }
     }
@@ -54,6 +57,9 @@ struct SettingsView: View {
     @State private var removalInProgress = false
     @State private var removalError = false
     @State private var backendReady = false
+    @State private var starting = true
+    @State private var quitting = false
+    @State private var quitFailed = false
     private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -92,6 +98,13 @@ struct SettingsView: View {
                     ForEach(UnlockMode.allCases) { option in
                         Button {
                             storedMode = option.rawValue
+                            if option == .automatic {
+                                CFPreferencesAppSynchronize("com.macface.settings" as CFString)
+                                DistributedNotificationCenter.default().postNotificationName(
+                                    Notification.Name("com.macface.settings.request-event-access"),
+                                    object: nil, userInfo: nil, deliverImmediately: true
+                                )
+                            }
                         } label: {
                             HStack(spacing: 12) {
                                 Image(systemName: option.icon)
@@ -113,7 +126,7 @@ struct SettingsView: View {
                         }
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(mode == option ? [.isSelected] : [])
-                        if option == .glance {
+                        if option != .password {
                             Divider().padding(.leading, 46)
                         }
                     }
@@ -145,6 +158,10 @@ struct SettingsView: View {
                 Label("按 ⌃⌘Q 锁屏。系统密码始终可用。", systemImage: "lock")
                     .foregroundStyle(.secondary)
                 Spacer()
+                Button("退出 MacFace") { quitMacFace() }
+                    .buttonStyle(.link)
+                    .disabled(starting || quitting || removalInProgress)
+                    .help("关闭设置并停止人脸识别后台。重新打开 MacFace 可恢复。")
                 Button("解锁原理", systemImage: "info.circle") { showingHelp.toggle() }
                     .buttonStyle(.link)
                     .popover(isPresented: $showingHelp, arrowEdge: .bottom) {
@@ -153,17 +170,17 @@ struct SettingsView: View {
 
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("怎么刷脸").fontWeight(.semibold)
-                                Text("唤醒原生锁屏，密码框留空，按回车并看向摄像头。")
+                                Text("自动刷脸：锁屏亮起后看向摄像头，通过验证即解锁。刚锁屏时直视镜头也会解锁。回车刷脸：密码框留空按回车。")
                             }
 
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("为什么要按回车").fontWeight(.semibold)
-                                Text("锁屏亮起时，MacFace 会提前识别。按回车后才会再核对新画面，并向 macOS 提交解锁。")
+                                Text("自动模式的权限").fontWeight(.semibold)
+                                Text("给 MacFace 后台开启辅助功能后，识别通过即可自动提交验证。权限未生效时，密码框留空按回车仍可刷脸。")
                             }
 
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("密码与隐私").fontWeight(.semibold)
-                                Text("随时可以直接输入系统密码。MacFace 只在本机保存人脸特征，不保存摄像头画面。")
+                                Text("随时可以直接输入系统密码。MacFace 只在本机保存人脸特征，不保存密码或摄像头画面。")
                             }
                         }
                         .font(.subheadline)
@@ -175,7 +192,15 @@ struct SettingsView: View {
             .font(.footnote)
         }
         .padding(24)
-        .onAppear(perform: refreshStatus)
+        .onAppear {
+            refreshStatus()
+        }
+        .task {
+            starting = true
+            await Task.detached { MacFaceService.start() }.value
+            starting = false
+            refreshStatus()
+        }
         .onReceive(timer) { _ in refreshStatus() }
         .sheet(isPresented: $showingPreview) { CameraPreview(enrollment: false) }
         .sheet(isPresented: $showingEnrollment, onDismiss: refreshStatus) { CameraPreview(enrollment: true) }
@@ -187,6 +212,22 @@ struct SettingsView: View {
         }
         .alert("未能删除人脸", isPresented: $removalError) {
             Button("好", role: .cancel) {}
+        }
+        .alert("未能停止 MacFace 后台", isPresented: $quitFailed) {
+            Button("好", role: .cancel) {}
+        }
+    }
+
+    private func quitMacFace() {
+        quitting = true
+        Task {
+            if await Task.detached(operation: MacFaceService.stop).value {
+                NSApplication.shared.terminate(nil)
+            } else {
+                quitting = false
+                quitFailed = true
+                refreshStatus()
+            }
         }
     }
 
@@ -208,6 +249,36 @@ struct SettingsView: View {
     }
 }
 
+private enum MacFaceService {
+    private static var domain: String { "gui/\(getuid())" }
+    private static var service: String { "\(domain)/com.macface.agent" }
+
+    static func start() {
+        if !launchctl(["kickstart", service]) && !launchctl(["print", service]) {
+            _ = launchctl(["bootstrap", domain, "/Library/LaunchAgents/com.macface.agent.plist"])
+        }
+    }
+
+    static func stop() -> Bool {
+        launchctl(["bootout", service]) || !launchctl(["print", service])
+    }
+
+    private static func launchctl(_ arguments: [String]) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
+    }
+}
+
 struct EnrollmentFrame {
     let width: Int
     let height: Int
@@ -219,6 +290,8 @@ final class PreviewCamera: NSObject, ObservableObject, AVCaptureVideoDataOutputS
     private let queue = DispatchQueue(label: "com.macface.settings.preview")
     private var wantsCamera = false
     private var latest: CVPixelBuffer?
+    private var latestTime: TimeInterval = 0
+    private var consumedTime: TimeInterval = 0
     @Published var message = "正在打开摄像头…"
     @Published var ready = false
 
@@ -279,12 +352,15 @@ final class PreviewCamera: NSObject, ObservableObject, AVCaptureVideoDataOutputS
             DispatchQueue.main.async { self.ready = true }
         }
         latest = CMSampleBufferGetImageBuffer(sampleBuffer)
+        latestTime = ProcessInfo.processInfo.systemUptime
     }
 
     func enrollmentFrame() async -> EnrollmentFrame? {
         await withCheckedContinuation { continuation in
             queue.async {
                 guard let buffer = self.latest,
+                      self.latestTime > self.consumedTime,
+                      ProcessInfo.processInfo.systemUptime - self.latestTime < 0.45,
                       CVPixelBufferLockBaseAddress(buffer, .readOnly) == kCVReturnSuccess else {
                     continuation.resume(returning: nil)
                     return
@@ -297,6 +373,7 @@ final class PreviewCamera: NSObject, ObservableObject, AVCaptureVideoDataOutputS
                 let width = CVPixelBufferGetWidth(buffer)
                 let height = CVPixelBufferGetHeight(buffer)
                 let stride = CVPixelBufferGetBytesPerRow(buffer)
+                self.consumedTime = self.latestTime
                 var bytes = Data()
                 bytes.reserveCapacity(width * height * 4)
                 for row in 0..<height {
@@ -328,13 +405,39 @@ struct PreviewLayer: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {}
 }
 
+private enum EnrollmentAngle: Int, CaseIterable {
+    case center, left, right
+
+    var instruction: String {
+        switch self {
+        case .center: "正对摄像头"
+        case .left: "把鼻尖稍微转向画面左侧"
+        case .right: "把鼻尖稍微转向画面右侧"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .center: "faceid"
+        case .left: "arrow.left"
+        case .right: "arrow.right"
+        }
+    }
+}
+
 struct CameraPreview: View {
     let enrollment: Bool
     @Environment(\.dismiss) private var dismiss
     @StateObject private var camera = PreviewCamera()
+    @State private var capturing = false
     @State private var saving = false
     @State private var result: String?
     @State private var showConfirmation = false
+    @State private var samples: [[Float]] = []
+
+    private var angle: EnrollmentAngle? {
+        EnrollmentAngle(rawValue: samples.count)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -346,16 +449,49 @@ struct CameraPreview: View {
             PreviewLayer(session: camera.session)
                 .frame(width: 420, height: 270)
                 .background(.black)
+                .overlay {
+                    if enrollment {
+                        RoundedRectangle(cornerRadius: 58)
+                            .strokeBorder(.white.opacity(0.8), lineWidth: 2)
+                            .frame(width: 146, height: 182)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
+                }
                 .clipShape(RoundedRectangle(cornerRadius: 12))
+            if enrollment {
+                HStack {
+                    Label(angle?.instruction ?? "三个角度已录入",
+                          systemImage: angle?.symbol ?? "checkmark.circle.fill")
+                        .font(.subheadline.weight(.medium))
+                    Spacer()
+                    Text("\(samples.count)/\(EnrollmentAngle.allCases.count)")
+                        .font(.subheadline.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("已完成 \(samples.count) 个角度，共 \(EnrollmentAngle.allCases.count) 个")
+                }
+                ProgressView(value: Double(samples.count), total: Double(EnrollmentAngle.allCases.count))
+                    .accessibilityHidden(true)
+            }
             Text(result ?? camera.message).font(.subheadline).foregroundStyle(.secondary)
             if enrollment {
                 HStack {
-                    Text("正对镜头并保持光线充足。").font(.footnote).foregroundStyle(.secondary)
                     Spacer()
                     if saving { ProgressView().controlSize(.small) }
-                    Button("录入当前人脸") { showConfirmation = true }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!camera.ready || saving)
+                    if angle == nil {
+                        Button("重新采集") {
+                            samples.removeAll()
+                            result = nil
+                        }
+                        .disabled(saving)
+                        Button("保存人脸") { showConfirmation = true }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(saving)
+                    } else if !capturing {
+                        Button(samples.isEmpty ? "开始录入" : "继续录入") { capturing = true }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(!camera.ready)
+                    }
                 }
             }
         }
@@ -363,24 +499,62 @@ struct CameraPreview: View {
         .onAppear { camera.start(enrollment: enrollment) }
         .onDisappear { camera.stop() }
         .interactiveDismissDisabled(saving)
-        .confirmationDialog("保存这张人脸用于解锁？", isPresented: $showConfirmation) {
+        .task(id: capturing) {
+            if capturing { await captureAngles() }
+        }
+        .confirmationDialog("保存人脸用于解锁？", isPresented: $showConfirmation) {
             Button("保存人脸") { save() }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("这会替换以前的录入。只保存人脸特征，需要管理员确认。")
+            Text("保存后会替换已有录入。需要管理员确认，只保存人脸特征。")
         }
+    }
+
+    private func captureAngles() async {
+        var previous: [Float]?
+        result = "让脸位于取景框内，按提示保持片刻。"
+        while !Task.isCancelled, let angle {
+            if let frame = await camera.enrollmentFrame() {
+                let capture = await Task.detached { Enrollment.extract(frame, angle: angle) }.value
+                guard !Task.isCancelled else { return }
+                switch capture {
+                case .sample(let features):
+                    if let reference = samples.first, Enrollment.similarity(features, reference) < 0.55 {
+                        previous = nil
+                        result = "请由同一个人完成三个角度。"
+                    } else if let last = previous, Enrollment.similarity(features, last) >= 0.55 {
+                        samples.append(features)
+                        previous = nil
+                        result = self.angle == nil ? "可以保存人脸。" : "已采集，按提示转到下一个角度。"
+                    } else {
+                        previous = features
+                        result = "保持片刻。"
+                    }
+                case .adjustPose:
+                    previous = nil
+                    result = "让画面中只有一张清晰的人脸，然后按提示调整角度。"
+                case .failure(let message):
+                    result = message
+                    capturing = false
+                    return
+                }
+            } else {
+                previous = nil
+                result = "正在等待摄像头画面…"
+            }
+            if self.angle != nil {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+        }
+        if !Task.isCancelled { capturing = false }
     }
 
     private func save() {
         saving = true
-        result = "正在处理人脸…"
+        result = "正在保存人脸特征…"
+        let captured = samples
         Task {
-            guard let frame = await camera.enrollmentFrame() else {
-                result = "暂时没有画面，请再试一次。"
-                saving = false
-                return
-            }
-            let message = await Task.detached { Enrollment.save(frame) }.value
+            let message = await Task.detached { Enrollment.save(captured) }.value
             saving = false
             if let message {
                 result = message
@@ -412,11 +586,28 @@ private enum Enrollment {
         return action.terminationStatus == 0
     }
 
-    static func save(_ frame: EnrollmentFrame) -> String? {
-        guard let resources = Bundle.main.resourceURL else { return "缺少录入组件。" }
+    enum Capture {
+        case sample([Float])
+        case adjustPose
+        case failure(String)
+    }
+
+    static func similarity(_ first: [Float], _ second: [Float]) -> Float {
+        zip(first, second).reduce(0) { $0 + $1.0 * $1.1 }
+    }
+
+    private static func normalized(_ values: [Float]) -> [Float]? {
+        let squaredLength = similarity(values, values)
+        guard squaredLength.isFinite, squaredLength > 1e-12 else { return nil }
+        let length = squaredLength.squareRoot()
+        return values.map { $0 / length }
+    }
+
+    static func extract(_ frame: EnrollmentFrame, angle: EnrollmentAngle) -> Capture {
+        guard let resources = Bundle.main.resourceURL else { return .failure("缺少录入组件。") }
         let extractor = Process()
         extractor.executableURL = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/MacFaceEnroll")
-        extractor.arguments = [resources.path, String(frame.width), String(frame.height)]
+        extractor.arguments = [resources.path, String(frame.width), String(frame.height), String(angle.rawValue)]
         let input = Pipe()
         let output = Pipe()
         extractor.standardInput = input
@@ -428,18 +619,32 @@ private enum Enrollment {
             do { try input.fileHandleForWriting.write(contentsOf: frame.bytes) } catch {
                 try? input.fileHandleForWriting.close()
                 extractor.waitUntilExit()
-                return "录入组件未能接收摄像头画面。"
+                return .failure("录入组件未能接收摄像头画面。")
             }
             try input.fileHandleForWriting.close()
             let template = output.fileHandleForReading.readDataToEndOfFile()
             extractor.waitUntilExit()
-            if extractor.terminationStatus == 3 {
-                return "请让画面中只有一张清晰的正脸，然后重试。"
-            }
+            if extractor.terminationStatus == 3 { return .adjustPose }
             guard extractor.terminationStatus == 0, template.count == 512 else {
-                return "无法生成有效的人脸特征。"
+                return .failure("无法生成有效的人脸特征。")
             }
+            let values = template.withUnsafeBytes { bytes in
+                (0..<128).map { bytes.loadUnaligned(fromByteOffset: $0 * MemoryLayout<Float>.size, as: Float.self) }
+            }
+            guard let features = normalized(values) else { return .failure("无法生成有效的人脸特征。") }
+            return .sample(features)
+        } catch {
+            return .failure("无法采集人脸，请重试。")
+        }
+    }
 
+    static func save(_ samples: [[Float]]) -> String? {
+        guard let resources = Bundle.main.resourceURL,
+              samples.count == EnrollmentAngle.allCases.count else { return "请先完成三个角度的录入。" }
+        let sum = (0..<128).map { index in samples.reduce(Float.zero) { $0 + $1[index] } }
+        guard let features = normalized(sum) else { return "无法生成有效的人脸特征。" }
+        let template = features.withUnsafeBytes { Data($0) }
+        do {
             let directory = FileManager.default.temporaryDirectory.appendingPathComponent("MacFace-" + UUID().uuidString)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                     attributes: [.posixPermissions: 0o700])

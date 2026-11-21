@@ -1,5 +1,7 @@
 #import "status_menu.h"
 #import "settings_keys.h"
+#import "camera_warmup.h"
+#import <CoreGraphics/CoreGraphics.h>
 #import <os/log.h>
 
 @interface MacFaceStatusMenu () <NSMenuDelegate>
@@ -37,8 +39,8 @@
         [menu addItem:[NSMenuItem separatorItem]];
 
         NSMutableArray<NSMenuItem *> *modes = [NSMutableArray array];
-        NSArray<NSString *> *titles = @[@"看一眼", @"仅用密码"];
-        NSArray<NSString *> *values = @[MacFaceModeGlance, MacFaceModePassword];
+        NSArray<NSString *> *titles = @[@"自动刷脸", @"回车刷脸", @"仅用密码"];
+        NSArray<NSString *> *values = @[MacFaceModeAutomatic, MacFaceModeGlance, MacFaceModePassword];
         for (NSUInteger index = 0; index < titles.count; ++index) {
             NSMenuItem *mode = [[NSMenuItem alloc] initWithTitle:titles[index]
                                                         action:@selector(selectMode:)
@@ -49,9 +51,17 @@
             [menu addItem:mode];
         }
         _modes = [modes copy];
+        [menu addItem:[NSMenuItem separatorItem]];
+        NSMenuItem *quit = [[NSMenuItem alloc] initWithTitle:@"退出 MacFace"
+                                                    action:@selector(quitMacFace:)
+                                             keyEquivalent:@""];
+        quit.target = self;
+        [menu addItem:quit];
         _item.menu = menu;
         [[NSDistributedNotificationCenter defaultCenter] addObserver:self
             selector:@selector(refreshVisibility:) name:MacFaceMenuBarIconChanged object:nil];
+        [[NSDistributedNotificationCenter defaultCenter] addObserver:self
+            selector:@selector(requestEventAccess:) name:MacFaceRequestEventAccess object:nil];
         [self refreshVisibility:nil];
     }
     return self;
@@ -99,5 +109,26 @@
 - (void)selectMode:(NSMenuItem *)sender {
     NSUserDefaults *settings = [[NSUserDefaults alloc] initWithSuiteName:MacFaceSettingsDomain];
     [settings setObject:sender.representedObject forKey:MacFaceModeKey];
+    if ([sender.representedObject isEqualToString:MacFaceModeAutomatic]) {
+        [self requestEventAccess:nil];
+    }
+}
+
+- (void)quitMacFace:(NSMenuItem *)sender {
+    (void)sender;
+    for (NSRunningApplication *settings in
+        [NSRunningApplication runningApplicationsWithBundleIdentifier:@"com.macface.settings"]) {
+        if ([settings.bundleURL.path isEqualToString:@"/Applications/MacFace.app"]) [settings terminate];
+    }
+    [NSApp terminate:nil];
+}
+
+- (void)requestEventAccess:(NSNotification *)notification {
+    (void)notification;
+    CFPreferencesAppSynchronize((__bridge CFStringRef)MacFaceSettingsDomain);
+    if ([MacFaceUnlockMode() isEqualToString:MacFaceModeAutomatic] &&
+        !MacFaceSessionIsLocked() && !CGPreflightPostEventAccess()) {
+        CGRequestPostEventAccess();
+    }
 }
 @end
