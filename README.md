@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/gycodex/MacFace/releases/tag/v0.5.0-preview.1"><strong>下载 0.5 预览版</strong></a>
+  <a href="https://github.com/gycodex/MacFace/releases/tag/v1.0.0"><strong>下载 MacFace 1.0.0</strong></a>
   &nbsp;·&nbsp;
   <a href="#开始使用">开始使用</a>
   &nbsp;·&nbsp;
@@ -24,27 +24,27 @@
 
 ## 开始使用
 
-1. 从 [Release](https://github.com/gycodex/MacFace/releases/tag/v0.5.0-preview.1) 下载 `.pkg`。安装包内含 App、后台和识别模型，无需安装开发工具。
+1. 从 [Release](https://github.com/gycodex/MacFace/releases/tag/v1.0.0) 下载 `.pkg`。安装包内含 App、后台和识别模型，无需安装开发工具。
 2. 从「应用程序」打开 MacFace，允许摄像头权限，点「录入人脸」并确认保存。安装和保存录入需要管理员授权。
 3. 按 `⌃⌘Q` 锁屏。唤醒屏幕后，**在空白密码框按回车并看向镜头**。输入正确的系统密码时，macOS 仍可直接解锁。
 
 菜单栏人像图标可以打开设置、查看后台状态或切换「看一眼」和「仅用密码」。设置里的 `？` 有简短说明。
 
 > [!IMPORTANT]
-> 当前是未签名、未公证的预览包，macOS 可能拦截打开。支持范围为 Apple 芯片、macOS 27 和外接 UVC 摄像头。已有版本的用户请先[卸载](#卸载)再安装。
+> 安装包未签名、未公证，macOS 可能拦截打开。支持范围为 Apple 芯片、macOS 27 和外接 UVC 摄像头。已有版本的用户请先[卸载](#卸载)再安装。
 
 ## 解锁与隐私
 
 | 操作 | MacFace 的行为 |
 | --- | --- |
-| 原生锁屏亮起 | 「看一眼」模式会短暂预热摄像头并提前识别 |
-| 空白密码框按回车 | 核对实时画面，验证通过后解锁 |
-| 输入正确密码 | 由 macOS 直接解锁 |
+| 原生锁屏亮起 | 「看一眼」模式会短暂预热摄像头并提前识别。识别持续通过时，最多等待 10 秒 |
+| 空白密码框按回车 | 先走人脸验证，核对新画面后解锁 |
+| 输入密码 | 交由 macOS 验证；正确密码可直接解锁 |
 | 选择「仅用密码」 | 暂停人脸解锁 |
 
 人脸特征保存在本机。摄像头画面只在内存中处理，设置里可以重新录入或删除人脸。普通摄像头不提供 TrueDepth 深度和红外信息，软件活体检测尚未经过完整的照片和视频防冒用评估。
 
-MacFace 用于已登录会话的锁屏。已在 macOS 27.2.1 的 Apple 芯片 Mac mini 和外接 UVC 摄像头上实测。预览包尚未在干净系统完成首次安装与卸载验收。
+MacFace 用于已登录会话的锁屏。已在 macOS 27.2.1 的 Apple 芯片 Mac mini 和外接 UVC 摄像头上实测。安装包尚未在干净系统完成首次安装与卸载验收。
 
 ## 从源码构建
 
@@ -52,7 +52,7 @@ MacFace 用于已登录会话的锁屏。已在 macOS 27.2.1 的 Apple 芯片 Ma
 
 ```sh
 make test
-make package-preview
+make package
 ```
 
 安装包和 SHA-256 校验文件生成在 `build/packages/`。直接使用本地构建组件安装时，执行以下命令，然后打开 MacFace 录入人脸。
@@ -67,7 +67,7 @@ sudo /bin/bash build/local-install/install-macface.sh install "$PWD/build/local-
 - SwiftUI 和 AVFoundation 提供设置、预览和录入。
 - 后台使用 YuNet、人脸特征模型 SFace 和 MiniFASNetV2 活体模型。
 - 授权插件核对本地后台的代码签名，并把识别结果绑定到单次锁屏请求。验证失败会由系统保留密码入口。
-- 测试覆盖插件加载、通信校验、超时、密码优先策略和提前识别时效。
+- 测试覆盖插件加载、通信校验、超时、空回车和密码分流和提前识别时效。
 
 </details>
 

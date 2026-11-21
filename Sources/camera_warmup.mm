@@ -4,8 +4,6 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <os/log.h>
 
-static const NSTimeInterval warmupSeconds = 4.0;
-
 BOOL MacFaceSessionIsLocked(void) {
     NSDictionary *state = CFBridgingRelease(CGSessionCopyCurrentDictionary());
     id locked = state[@"CGSSessionScreenIsLocked"];
@@ -27,6 +25,7 @@ static BOOL canWarmCamera(void) {
     BOOL (^_analyzer)(const cv::Mat &);
     EarlyGlance _earlyGlance;
     uint64_t _frameVersion;
+    double _warmupStarted;
 }
 
 - (instancetype)initWithAnalyzer:(BOOL (^)(const cv::Mat &))analyzer {
@@ -68,7 +67,9 @@ static BOOL canWarmCamera(void) {
     if (_verifying || _waiting || !canWarmCamera()) return;
     MacFaceCamera *camera = [[MacFaceCamera alloc] init];
     uint64_t generation = ++_generation;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(warmupSeconds * NSEC_PER_SEC)), _queue, ^{
+    _warmupStarted = NSProcessInfo.processInfo.systemUptime;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(EarlyGlance::maxWarmupSeconds * NSEC_PER_SEC)),
+                   _queue, ^{
         if (self->_generation == generation) [self stopIdleCapture];
     });
     if ([camera start] && canWarmCamera()) {
@@ -84,7 +85,11 @@ static BOOL canWarmCamera(void) {
 }
 
 - (void)analyzeIdleFrame:(uint64_t)generation {
-    if (!_waiting || _generation != generation || !canWarmCamera()) return;
+    if (!_waiting || _generation != generation) return;
+    if (!canWarmCamera()) {
+        [self stopIdleCapture];
+        return;
+    }
 
     cv::Mat frame;
     BOOL received = [_waiting waitForFrame:frame version:_frameVersion before:[NSDate date]];
@@ -98,6 +103,10 @@ static BOOL canWarmCamera(void) {
         }
     } else {
         _earlyGlance.record(false, now);
+    }
+    if (!_earlyGlance.canKeepWarming(NSProcessInfo.processInfo.systemUptime, _warmupStarted)) {
+        [self stopIdleCapture];
+        return;
     }
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 160 * NSEC_PER_MSEC), _queue, ^{
         [self analyzeIdleFrame:generation];
@@ -122,12 +131,16 @@ static BOOL canWarmCamera(void) {
             [self stopIdleCapture];
             return;
         }
+        const double now = NSProcessInfo.processInfo.systemUptime;
+        if (self->_waiting && !self->_earlyGlance.canKeepWarming(now, self->_warmupStarted)) {
+            [self stopIdleCapture];
+        }
         camera = self->_waiting;
         self->_waiting = nil;
         ++self->_generation;
         warm = camera != nil;
         preverified = warm && canWarmCamera() &&
-            self->_earlyGlance.fresh(NSProcessInfo.processInfo.systemUptime);
+            self->_earlyGlance.fresh(now);
         self->_earlyGlance = EarlyGlance();
         if (!camera) {
             camera = [[MacFaceCamera alloc] init];

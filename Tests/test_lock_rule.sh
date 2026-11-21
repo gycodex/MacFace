@@ -13,11 +13,11 @@ prepare() {
 
 prepare '["use-login-window-ui"]'
 [[ "$(plutil -extract rule json -o - "$directory/output")" == \
-   '["use-login-window-ui","com.macface.face-unlock"]' ]]
+   '["com.macface.face-unlock","use-login-window-ui"]' ]]
 [[ "$(plutil -extract rule json -o - "$directory/input")" == '["use-login-window-ui"]' ]]
 prepare '["example.remote","use-login-window-ui","example.fallback"]'
 [[ "$(plutil -extract rule json -o - "$directory/output")" == \
-   '["example.remote","use-login-window-ui","com.macface.face-unlock","example.fallback"]' ]]
+   '["example.remote","com.macface.face-unlock","use-login-window-ui","example.fallback"]' ]]
 if prepare '["example.other"]' 2>/dev/null ||
    prepare '["use-login-window-ui","com.macface.face-unlock"]' 2>/dev/null ||
    prepare '["use-login-window-ui","use-login-window-ui"]' 2>/dev/null ||

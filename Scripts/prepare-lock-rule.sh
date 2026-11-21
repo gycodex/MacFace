@@ -22,7 +22,7 @@ while entry=$("$plist" -c "Print :rule:$index" "$input" 2>/dev/null); do
     fi
     if [[ "$entry" == "$native" ]]; then
         [[ -z "$position" ]] || exit 1
-        position=$((index + 1))
+        position=$index
     fi
     index=$((index + 1))
 done

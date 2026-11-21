@@ -1,4 +1,4 @@
-#include <Security/AuthorizationPlugin.h>
+#include "auth_input.h"
 #include <os/log.h>
 #include <stdbool.h>
 #include <stdlib.h>
@@ -28,7 +28,7 @@ static OSStatus createMechanism(AuthorizationPluginRef plugin,
                                 AuthorizationMechanismId id,
                                 AuthorizationMechanismRef *mechanism) {
     if (!plugin || !engine || !id || !mechanism ||
-        (strcmp(id, "observe") != 0 && strcmp(id, "camera") != 0 && strcmp(id, "verify") != 0)) {
+        (strcmp(id, "observe") != 0 && strcmp(id, "camera") != 0 && strcmp(id, "verify-empty") != 0)) {
         return errAuthorizationInternal;
     }
     struct ProbeMechanism *observer = calloc(1, sizeof(*observer));
@@ -39,7 +39,7 @@ static OSStatus createMechanism(AuthorizationPluginRef plugin,
     observer->callbacks = state->callbacks;
     observer->engine = engine;
     observer->checkCamera = strcmp(id, "camera") == 0;
-    observer->verifyFace = strcmp(id, "verify") == 0;
+    observer->verifyFace = strcmp(id, "verify-empty") == 0;
     *mechanism = observer;
     return errAuthorizationSuccess;
 }
@@ -51,7 +51,9 @@ static OSStatus invokeMechanism(AuthorizationMechanismRef mechanism) {
     if (observer->checkCamera) {
         MacFaceCheckCamera();
     }
-    const bool approved = observer->verifyFace && MacFaceCheckAgent();
+    const bool approved = observer->verifyFace &&
+        MacFaceInputIsEmpty(observer->callbacks, observer->engine) &&
+        MacFaceCheckAgent();
     return observer->callbacks->SetResult(observer->engine,
                                           approved ? kAuthorizationResultAllow : kAuthorizationResultDeny);
 }

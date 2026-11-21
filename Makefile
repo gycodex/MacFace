@@ -9,13 +9,13 @@ all: $(BINARY)
 AUTH_SOURCES := Sources/probe.c Sources/auth_camera.m Sources/auth_agent.c Sources/auth_exchange.c
 AUTH_FRAMEWORKS := -framework AVFoundation -framework Foundation -framework Security -framework SystemConfiguration
 
-$(BINARY): $(AUTH_SOURCES) Sources/auth_exchange.h Sources/Info.plist Makefile
+$(BINARY): $(AUTH_SOURCES) Sources/auth_exchange.h Sources/auth_input.h Sources/Info.plist Makefile
 	mkdir -p "$(BUNDLE)/Contents/MacOS"
 	cp Sources/Info.plist "$(BUNDLE)/Contents/Info.plist"
 	xcrun clang $(CFLAGS) -fobjc-arc -bundle $(AUTH_SOURCES) $(AUTH_FRAMEWORKS) -o "$@"
 	codesign --force --sign - "$(BUNDLE)"
 
-build/probe_test: Tests/probe_test.c Makefile
+build/probe_test: Tests/probe_test.c Sources/auth_input.h Makefile
 	mkdir -p build
 	xcrun clang $(CFLAGS) Tests/probe_test.c -o "$@"
 
@@ -41,6 +41,6 @@ test: $(BINARY) build/probe_test build/test_auth_exchange build/test_early_glanc
 release:
 	bash Scripts/build-release.sh
 
-.PHONY: package-preview
-package-preview: release
-	bash Scripts/package-preview.sh
+.PHONY: package
+package: release
+	bash Scripts/package-macos.sh

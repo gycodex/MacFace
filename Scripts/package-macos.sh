@@ -24,7 +24,7 @@ cat > "$stage/scripts/postinstall" <<'POSTINSTALL'
 #!/bin/bash
 set -euo pipefail
 if [[ "${3:-}" != / || "$(uname -m)" != arm64 || "$(sw_vers -productVersion | cut -d . -f 1)" != 27 ]]; then
-    echo "This preview supports installation on the active Apple silicon macOS 27 volume only." >&2
+    echo "MacFace supports installation on the active Apple silicon macOS 27 volume only." >&2
     exit 1
 fi
 consoleUser=$(/usr/bin/stat -f %Su /dev/console)
@@ -37,7 +37,7 @@ exec /bin/bash "$components/install-macface.sh" install "$components" "$consoleU
 POSTINSTALL
 chmod 755 "$stage/scripts/postinstall"
 package="$PWD/build/packages/MacFace-$version-arm64-unsigned.pkg"
-pkgbuild --identifier com.macface.preview.installer --version "$version" \
+pkgbuild --identifier com.macface.installer --version "$version" \
     --nopayload --scripts "$stage/scripts" "$package"
 (
     cd build/packages

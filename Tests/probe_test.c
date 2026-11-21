@@ -1,7 +1,8 @@
-#include <Security/AuthorizationPlugin.h>
+#include "../Sources/auth_input.h"
 #include <assert.h>
 #include <dlfcn.h>
 #include <stdio.h>
+#include <string.h>
 
 static unsigned resultCount;
 static unsigned deactivateCount;
@@ -20,7 +21,23 @@ static OSStatus recordDeactivation(AuthorizationEngineRef engine) {
     return errAuthorizationSuccess;
 }
 
+static AuthorizationValue testInput;
+static OSStatus readInput(AuthorizationEngineRef engine, AuthorizationString key,
+                          AuthorizationContextFlags *flags, const AuthorizationValue **value) {
+    (void)engine;
+    (void)flags;
+    assert(strcmp(key, kAuthorizationEnvironmentPassword) == 0);
+    *value = &testInput;
+    return errAuthorizationSuccess;
+}
+
 int main(int argc, char **argv) {
+    AuthorizationCallbacks inputCallbacks = {0};
+    assert(!MacFaceInputIsEmpty(&inputCallbacks, NULL));
+    inputCallbacks.GetContextValue = readInput;
+    assert(MacFaceInputIsEmpty(&inputCallbacks, NULL));
+    testInput.length = 1;
+    assert(!MacFaceInputIsEmpty(&inputCallbacks, NULL));
     assert(argc == 2);
     void *bundle = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
     if (!bundle) {
@@ -48,7 +65,7 @@ int main(int argc, char **argv) {
     assert(interface->MechanismDestroy(mechanism) == errAuthorizationSuccess);
     assert(interface->MechanismCreate(plugin, engine, "camera", &mechanism) == errAuthorizationSuccess);
     assert(interface->MechanismDestroy(mechanism) == errAuthorizationSuccess);
-    assert(interface->MechanismCreate(plugin, engine, "verify", &mechanism) == errAuthorizationSuccess);
+    assert(interface->MechanismCreate(plugin, engine, "verify-empty", &mechanism) == errAuthorizationSuccess);
     assert(interface->MechanismDestroy(mechanism) == errAuthorizationSuccess);
     assert(interface->PluginDestroy(plugin) == errAuthorizationSuccess);
     assert(resultCount == 1 && deactivateCount == 1);

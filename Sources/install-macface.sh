@@ -136,7 +136,7 @@ cat <<'PLIST' | "$security" authorizationdb write "$right"
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>class</key><string>evaluate-mechanisms</string>
-<key>mechanisms</key><array><string>MacFaceProbe:verify,privileged</string></array>
+<key>mechanisms</key><array><string>MacFaceProbe:verify-empty,privileged</string></array>
 <key>shared</key><false/>
 <key>tries</key><integer>1</integer>
 </dict></plist>
