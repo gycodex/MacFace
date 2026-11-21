@@ -29,9 +29,6 @@ Mac mini 接上普通的外置 UVC 摄像头，就能在熟悉的 macOS 锁屏�
 
 ## 开始使用
 
-> [!NOTE]
-> 下文描述待发布的 1.0.3。GitHub 当前正式版为 1.0.2，使用空白回车刷脸。
-
 1. 从 [GitHub Releases](https://github.com/gycodex/MacFace/releases/latest) 下载对应的 `.pkg`。安装包内含 App、识别后台和模型。
 2. 安装后，在「应用程序」打开 MacFace，允许摄像头权限。点「录入人脸」，按画面提示完成三个角度并保存。安装及保存需管理员确认。
 3. 选择需要的解锁方式。按 `⌃⌘Q` 锁屏后，按下表操作。
@@ -43,6 +40,8 @@ Mac mini 接上普通的外置 UVC 摄像头，就能在熟悉的 macOS 锁屏�
 | **仅用密码** | 暂停刷脸，输入 macOS 系统密码。 |
 
 自动模式下，刚锁屏时如果仍看着镜头，识别通过后也会解锁。需要保持锁定时，可以选择「回车刷脸」或「仅用密码」。
+
+如果辅助功能列表里没有 MacFace 后台，点「＋」，按 `⇧⌘G` 前往 `/Library/Application Support/MacFace`，选择 `MacFaceAgent.app`。授权后如果仍需回车，点「退出 MacFace」，再从「应用程序」重新打开。覆盖安装后如果授权失效，可在辅助功能列表中重新添加该后台。
 
 > [!IMPORTANT]
 > 支持 Apple 芯片、macOS 27 和外置 UVC 摄像头。安装包未签名、未公证，macOS 可能拦截打开。覆盖安装会保留现有录入。
