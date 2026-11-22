@@ -103,26 +103,29 @@ void NativeFaceMatcher::warmUp() {
 }
 
 bool NativeFaceMatcher::verifiedGlance(const cv::Mat &bgr, const cv::Mat &enrolled) {
+    return checkGlance(bgr, enrolled) == GlanceResult::matched;
+}
+
+GlanceResult NativeFaceMatcher::checkGlance(const cv::Mat &bgr, const cv::Mat &enrolled) {
     if (enrolled.type() != CV_32F || enrolled.rows != 1 || enrolled.cols != 128 ||
         !cv::checkRange(enrolled) || cv::norm(enrolled) <= 1e-6) {
-        return false;
+        return GlanceResult::identity;
     }
     auto sample = impl->sample(bgr, true);
-    if (!sample || std::abs(sample->pose) > 0.23 ||
-        impl->recognizer->match(enrolled, sample->features, cv::FaceRecognizerSF::FR_COSINE) < 0.55) {
-        return false;
-    }
+    if (!sample || std::abs(sample->pose) > 0.23) return GlanceResult::capture;
+    if (impl->recognizer->match(enrolled, sample->features, cv::FaceRecognizerSF::FR_COSINE) < 0.55)
+        return GlanceResult::identity;
     if (impl->liveness.empty()) {
         impl->liveness = cv::dnn::readNetFromONNX(impl->livenessPath);
     }
     impl->liveness.setInput(cv::dnn::blobFromImage(sample->context, 1.0, {80, 80}));
     cv::Mat raw = impl->liveness.forward();
     if (raw.type() != CV_32F || raw.total() != 3 || !cv::checkRange(raw)) {
-        return false;
+        return GlanceResult::liveness;
     }
     const float *logits = raw.ptr<float>();
     const float largest = *std::max_element(logits, logits + 3);
     const double live = std::exp(logits[1] - largest);
     const double sum = std::exp(logits[0] - largest) + live + std::exp(logits[2] - largest);
-    return live / sum >= 0.80;
+    return live / sum >= 0.80 ? GlanceResult::matched : GlanceResult::liveness;
 }

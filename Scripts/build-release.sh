@@ -62,9 +62,10 @@ cmake --build build/native/agent
 agent=build/native/agent/MacFaceAgent.app
 mkdir -p "$agent/Contents/Resources"
 cp build/models/{yunet,sface,liveness}.onnx "$agent/Contents/Resources/"
+bash Sources/build-settings.sh
+cp build/MacFace.app/Contents/Resources/MacFace.icns "$agent/Contents/Resources/"
 codesign --force --sign - --options runtime --entitlements Sources/AgentEntitlements.plist "$agent"
 codesign --verify --strict "$agent"
-bash Sources/build-settings.sh
 make test
 
 mkdir -p build/local-install

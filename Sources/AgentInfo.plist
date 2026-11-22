@@ -6,6 +6,8 @@
 	<string>MacFace 后台</string>
 	<key>CFBundleExecutable</key>
 	<string>MacFaceAgent</string>
+	<key>CFBundleIconFile</key>
+	<string>MacFace.icns</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.macface.agent</string>
 	<key>CFBundleName</key>
@@ -13,9 +15,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.4</string>
+	<string>1.0.5</string>
 	<key>CFBundleVersion</key>
-	<string>10012</string>
+	<string>10015</string>
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>

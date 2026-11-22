@@ -8,6 +8,8 @@
 
 #include "enrollment_pose.hpp"
 
+enum class GlanceResult { matched, capture, identity, liveness };
+
 class NativeFaceMatcher {
 public:
     explicit NativeFaceMatcher(const std::string &modelDirectory);
@@ -15,6 +17,7 @@ public:
 
     void warmUp();
     bool verifiedGlance(const cv::Mat &bgr, const cv::Mat &enrolled);
+    GlanceResult checkGlance(const cv::Mat &bgr, const cv::Mat &enrolled);
     std::optional<cv::Mat> enrollmentEmbedding(const cv::Mat &bgr, EnrollmentPose pose);
     std::optional<cv::Mat> embedding(const cv::Mat &bgr);
 

@@ -31,6 +31,9 @@ static bool checkGlance(MacFaceCamera *camera, NativeFaceMatcher &matcher, const
     auto nextCheck = started;
     uint64_t frameVersion = 0;
     int consecutive = 0;
+    int captureRejected = 0;
+    int identityRejected = 0;
+    int livenessRejected = 0;
     while (Clock::now() < deadline) {
         cv::Mat frame;
         if (![camera waitForFrame:frame version:frameVersion before:[NSDate dateWithTimeIntervalSinceNow:0.25]] ||
@@ -38,7 +41,11 @@ static bool checkGlance(MacFaceCamera *camera, NativeFaceMatcher &matcher, const
             continue;
         }
         nextCheck = Clock::now() + std::chrono::milliseconds(160);
-        bool matched = matcher.verifiedGlance(frame, reference);
+        const GlanceResult result = matcher.checkGlance(frame, reference);
+        if (result == GlanceResult::capture) ++captureRejected;
+        if (result == GlanceResult::identity) ++identityRejected;
+        if (result == GlanceResult::liveness) ++livenessRejected;
+        bool matched = result == GlanceResult::matched;
         if (prepared && matched && Clock::now() - started <= std::chrono::milliseconds(450)) {
             usedPreparation = true;
             return true;
@@ -49,6 +56,8 @@ static bool checkGlance(MacFaceCamera *camera, NativeFaceMatcher &matcher, const
             return true;
         }
     }
+    os_log(OS_LOG_DEFAULT, "MacFace: failed scan frames capture=%d identity=%d liveness=%d",
+           captureRejected, identityRejected, livenessRejected);
     return false;
 }
 

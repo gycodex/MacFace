@@ -69,7 +69,7 @@ static BOOL submitFaceUnlock(double armedAt) {
     double _warmupStarted;
     BOOL _reportedFirstFrame;
     MacFaceLockFeedback *_feedback;
-    BOOL _feedbackReady;
+    BOOL _showingReturnPrompt;
     BOOL _autoSubmitPending;
     double _autoKeyboardBaseline;
     double _automaticSubmittedAt;
@@ -207,15 +207,16 @@ static BOOL submitFaceUnlock(double armedAt) {
             os_log(OS_LOG_DEFAULT, "MacFace: submitted automatic face unlock");
         }
     }
-    if (ready != _feedbackReady) {
-        _feedbackReady = ready;
-        [self updateFeedback:ready ? MacFaceFeedbackReady : MacFaceFeedbackScanning];
-    }
     const double currentTime = NSProcessInfo.processInfo.systemUptime;
     const BOOL awaitingSystem = _automaticSubmittedAt > 0 && currentTime - _automaticSubmittedAt < 2.0;
     if (!awaitingSystem && !_earlyGlance.canKeepWarming(currentTime, _warmupStarted)) {
         [self finishIdleScan];
         return;
+    }
+    const BOOL showReturnPrompt = ready && !awaitingSystem;
+    if (showReturnPrompt != _showingReturnPrompt) {
+        _showingReturnPrompt = showReturnPrompt;
+        [self updateFeedback:showReturnPrompt ? MacFaceFeedbackReady : MacFaceFeedbackScanning];
     }
     const int64_t delay = _autoSubmitPending ? 70 : 160;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delay * NSEC_PER_MSEC), _queue, ^{
@@ -234,7 +235,7 @@ static BOOL submitFaceUnlock(double armedAt) {
     [_waiting stop];
     _waiting = nil;
     _earlyGlance = EarlyGlance();
-    _feedbackReady = NO;
+    _showingReturnPrompt = NO;
     [self updateFeedback:MacFaceFeedbackHidden];
     ++_generation;
 }
@@ -256,7 +257,7 @@ static BOOL submitFaceUnlock(double armedAt) {
         }
         camera = self->_waiting;
         self->_waiting = nil;
-        self->_feedbackReady = NO;
+        self->_showingReturnPrompt = NO;
         ++self->_generation;
         warm = camera != nil;
         preverified = warm && canWarmCamera() &&
